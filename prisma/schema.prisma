@@ -1,0 +1,263 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ================= ENUMS =================
+
+enum Role {
+  OPERATOR_LAB
+  DOKTER_PATOLOGI
+  DOKTER_KLINIS
+  ADMIN_AI
+}
+
+enum CaseStatus {
+  PENDING_UPLOAD
+  QC_PENDING
+  AI_PROCESSING
+  PENDING_VALIDATION
+  RESOLVED
+}
+
+enum SeverityLevel {
+  NONE
+  FOKAL
+  SEDANG
+  LUAS
+}
+
+enum ConsensusSeverity {
+  NONE
+  RENDAH
+  SEDANG
+  TINGGI
+}
+
+enum ProcessingStatus {
+  QUEUED
+  PROCESSING
+  DONE
+  FAILED
+}
+
+enum QcStatus {
+  PENDING
+  PASSED
+  FAILED
+}
+
+enum QcFailureReason {
+  BLUR
+  DARK
+  BRIGHT
+  NONE
+}
+
+enum Magnification {
+  X10
+  X40
+}
+
+enum Staining {
+  HE
+}
+
+enum CommentType {
+  COMMENT
+  VALIDATION
+}
+
+enum ValidationResult {
+  NEKROSIS_ADA
+  BUKAN_NEKROSIS
+  RAGU
+}
+
+enum ReportResult {
+  PRESENT
+  ABSENT
+  UNCERTAIN
+}
+
+// ================= MODELS =================
+
+model User {
+  id             String   @id @default(uuid())
+  name           String
+  email          String   @unique
+  password_hash  String
+  role           Role
+  is_first_login Boolean  @default(true)
+  sip_number     String?
+  institution    String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  // Relasi
+  patients_created Patient[]
+  cases_created    Case[]
+  images_uploaded  Image[]
+  comments_made    Comment[]
+  consensus_made   Consensus[]
+  reports_made     Report[]
+  audit_logs       AuditLog[]
+
+  @@map("users")
+}
+
+model Patient {
+  id               String   @id @default(uuid())
+  name             String
+  sex_at_birth     String
+  rm_number        String   @unique
+  referring_doctor String?
+  created_by       String
+  user             User     @relation(fields: [created_by], references: [id])
+  created_at       DateTime @default(now())
+
+  cases            Case[]
+
+  @@map("patients")
+}
+
+model Case {
+  id             String     @id @default(uuid())
+  patient_id     String
+  patient        Patient    @relation(fields: [patient_id], references: [id])
+  created_by     String
+  user           User       @relation(fields: [created_by], references: [id])
+  status         CaseStatus @default(PENDING_UPLOAD)
+  notes          String?    @db.Text
+  clinical_notes String?    @db.Text
+  created_at     DateTime   @default(now())
+  completed_at   DateTime?
+
+  images         Image[]
+  consensus      Consensus[]
+  reports        Report[]
+
+  @@map("cases")
+}
+
+model Image {
+  id                  String          @id @default(uuid())
+  case_id             String
+  case                Case            @relation(fields: [case_id], references: [id])
+  uploaded_by         String
+  user                User            @relation(fields: [uploaded_by], references: [id])
+  file_path           String
+  original_filename   String
+  mime_type           String
+  file_size_bytes     Int
+  qc_status           QcStatus        @default(PENDING)
+  qc_failure_reason   QcFailureReason @default(NONE)
+  qc_blur_score       Float?
+  qc_exposure_score   Float?
+  magnification       Magnification
+  staining            Staining        @default(HE)
+  uploaded_at         DateTime        @default(now())
+  checked_at          DateTime?
+
+  ai_result           AiResult?
+  comments            Comment[]
+
+  @@map("images")
+}
+
+model AiResult {
+  id                    String           @id @default(uuid())
+  image_id              String           @unique
+  image                 Image            @relation(fields: [image_id], references: [id])
+  necrosis_detected     Boolean
+  confidence_score      Float
+  severity              SeverityLevel
+  necrosis_area_percent Float?
+  segmentation_mask     Json             // Menyimpan GeoJSON / COCO JSON
+  is_uncertain          Boolean          @default(false)
+  processing_status     ProcessingStatus @default(QUEUED)
+  processed_at          DateTime?
+
+  @@map("ai_results")
+}
+
+model Comment {
+  id              String      @id @default(uuid())
+  image_id        String
+  image           Image       @relation(fields: [image_id], references: [id])
+  commentator_id  String
+  user            User        @relation(fields: [commentator_id], references: [id])
+  content         String      @db.Text
+  type            CommentType
+  submitted_at    DateTime    @default(now())
+
+  // Relasi 1:1 untuk mengakomodasi "inherits" di Prisma
+  validation      Validation?
+
+  @@map("comments")
+}
+
+// Karena "inherits" tidak ada di Prisma, kita jadikan comment_id sebagai PK sekaligus FK
+model Validation {
+  comment_id      String           @id
+  comment         Comment          @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+  result          ValidationResult
+  severity        SeverityLevel
+
+  @@map("validations")
+}
+
+model Consensus {
+  id              String            @id @default(uuid())
+  case_id         String
+  case            Case              @relation(fields: [case_id], references: [id])
+  commentator_id  String
+  user            User              @relation(fields: [commentator_id], references: [id])
+  severity        ConsensusSeverity
+  comment         String?           @db.Text
+  submitted_at    DateTime          @default(now())
+
+  @@map("consensus")
+}
+
+model Report {
+  id                 String        @id @default(uuid())
+  case_id            String
+  case               Case          @relation(fields: [case_id], references: [id])
+  generated_by       String
+  user               User          @relation(fields: [generated_by], references: [id])
+  file_path          String
+  diagnosis_result   ReportResult
+  severity           SeverityLevel
+  pathologist_notes  String?       @db.Text
+  diagnosis_summary  String?       @db.Text
+  is_signed          Boolean       @default(false)
+  digital_signature  String?
+  generated_at       DateTime      @default(now())
+  signed_at          DateTime?
+
+  @@map("reports")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  user_id      String
+  user         User     @relation(fields: [user_id], references: [id])
+  action       String
+  entity_id    String
+  entity_type  String
+  payload      Json?
+  created_at   DateTime @default(now())
+
+  @@map("audit_logs")
+}
