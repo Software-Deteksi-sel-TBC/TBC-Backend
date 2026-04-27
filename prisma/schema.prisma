@@ -17,37 +17,37 @@ datasource db {
 
 enum Role {
   OPERATOR_LAB
-  DOKTER_PATOLOGI
-  DOKTER_KLINIS
+  DOKTER_PATOLOGI 
+  DOKTER_KLINIS //mungkin ini ga perlu
   ADMIN_AI
 }
 
 enum CaseStatus {
   PENDING_UPLOAD
-  QC_PENDING
   AI_PROCESSING
   PENDING_VALIDATION
   RESOLVED
 }
 
-enum SeverityLevel {
-  NONE
-  FOKAL
-  SEDANG
-  LUAS
+enum FindingType {
+  NECROSIS
+  DATIA_LANGHANS
+  EPITHELIOID
+  GRANULOMA
 }
 
-enum ConsensusSeverity {
-  NONE
+enum SeverityLevel {
+  SANGAT_RENDAH
   RENDAH
   SEDANG
   TINGGI
+  SANGAT_INGGI
 }
 
 enum ProcessingStatus {
   QUEUED
   PROCESSING
-  DONE
+  COMPLETED
   FAILED
 }
 
@@ -61,33 +61,21 @@ enum QcFailureReason {
   BLUR
   DARK
   BRIGHT
-  NONE
+  NOISE
 }
 
-enum Magnification {
+enum Magnification { 
   X10
   X40
 }
 
-enum Staining {
+enum Staining { 
   HE
 }
 
 enum CommentType {
   COMMENT
   VALIDATION
-}
-
-enum ValidationResult {
-  NEKROSIS_ADA
-  BUKAN_NEKROSIS
-  RAGU
-}
-
-enum ReportResult {
-  PRESENT
-  ABSENT
-  UNCERTAIN
 }
 
 // ================= MODELS =================
@@ -118,10 +106,11 @@ model User {
 
 model Patient {
   id               String   @id @default(uuid())
+  age              Int
   name             String
-  sex_at_birth     String
-  rm_number        String   @unique
-  referring_doctor String?
+  sex              String
+  no_induk         String   @unique
+  bpjs_number      String   @unique
   created_by       String
   user             User     @relation(fields: [created_by], references: [id])
   created_at       DateTime @default(now())
@@ -139,9 +128,8 @@ model Case {
   user           User       @relation(fields: [created_by], references: [id])
   status         CaseStatus @default(PENDING_UPLOAD)
   notes          String?    @db.Text
-  clinical_notes String?    @db.Text
   created_at     DateTime   @default(now())
-  completed_at   DateTime?
+  completed_at   DateTime?  //perlu ga ya?
 
   images         Image[]
   consensus      Consensus[]
@@ -161,7 +149,7 @@ model Image {
   mime_type           String
   file_size_bytes     Int
   qc_status           QcStatus        @default(PENDING)
-  qc_failure_reason   QcFailureReason @default(NONE)
+  qc_failure_reason   QcFailureReason?
   qc_blur_score       Float?
   qc_exposure_score   Float?
   magnification       Magnification
@@ -175,20 +163,55 @@ model Image {
   @@map("images")
 }
 
+// TABEL INDUK: Kesimpulan global dari satu gambar citra
 model AiResult {
-  id                    String           @id @default(uuid())
-  image_id              String           @unique
-  image                 Image            @relation(fields: [image_id], references: [id])
-  necrosis_detected     Boolean
-  confidence_score      Float
-  severity              SeverityLevel
-  necrosis_area_percent Float?
-  segmentation_mask     Json             // Menyimpan GeoJSON / COCO JSON
-  is_uncertain          Boolean          @default(false)
-  processing_status     ProcessingStatus @default(QUEUED)
-  processed_at          DateTime?
+  id                      String           @id @default(uuid())
+  image_id                String           @unique
+  image                   Image            @relation(fields: [image_id], references: [id], onDelete: Cascade)
+
+  // -- ATRIBUT AGREGASI (DENORMALISASI) --
+  
+  // 1. Agregasi Area (Menggunakan Float untuk persentase)
+  total_necrosis_percent  Float? 
+  global_severity         SeverityLevel    @default(SANGAT_RENDAH)         
+  total_granuloma_percent Float?
+
+  // 2. Agregasi Hitungan (Menggunakan Int untuk jumlah sel utuh)
+  total_datia_count       Int?             @default(0)
+  total_epiteloid_count   Int?             @default(0)
+
+  // 3. Agregasi Kepercayaan AI
+  mean_confidence         Float?           // Nilai tengah akurasi AI untuk gambar ini
+  
+  // --------------------------------------
+
+  is_uncertain            Boolean          @default(false)
+  processing_status       ProcessingStatus @default(QUEUED)
+  processed_at            DateTime?
+
+  findings                AiFinding[]      
 
   @@map("ai_results")
+}
+
+// TABEL ANAK: Detail dari setiap objek (Nekrosis, Datia, dll) yang ditemukan
+model AiFinding {
+  id                String      @id @default(uuid())
+  ai_result_id      String
+  ai_result         AiResult    @relation(fields: [ai_result_id], references: [id], onDelete: Cascade)
+
+  // Identifikasi Objek
+  finding_type      FindingType // Jenis biomarka (contoh: DATIA_LANGHANS)
+  confidence_score  Float       // Skor akurasi AI untuk SATU objek ini saja (contoh: 0.95)
+  
+  // Pengukuran (Bisa null karena metriknya beda-beda tiap objek)
+  area_percent      Float?      // Sangat berguna untuk Nekrosis / Granuloma
+  count             Int?        // Sangat berguna untuk jumlah sel Datia / Epiteloid
+  
+  // Koordinat Visual
+  segmentation_mask Json        // Menyimpan array koordinat (X, Y) / Bounding Box / Polygon
+
+  @@map("ai_findings")
 }
 
 model Comment {
@@ -211,7 +234,6 @@ model Comment {
 model Validation {
   comment_id      String           @id
   comment         Comment          @relation(fields: [comment_id], references: [id], onDelete: Cascade)
-  result          ValidationResult
   severity        SeverityLevel
 
   @@map("validations")
@@ -223,7 +245,7 @@ model Consensus {
   case            Case              @relation(fields: [case_id], references: [id])
   commentator_id  String
   user            User              @relation(fields: [commentator_id], references: [id])
-  severity        ConsensusSeverity
+  severity        SeverityLevel
   comment         String?           @db.Text
   submitted_at    DateTime          @default(now())
 
@@ -237,7 +259,6 @@ model Report {
   generated_by       String
   user               User          @relation(fields: [generated_by], references: [id])
   file_path          String
-  diagnosis_result   ReportResult
   severity           SeverityLevel
   pathologist_notes  String?       @db.Text
   diagnosis_summary  String?       @db.Text
