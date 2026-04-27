@@ -13,7 +13,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/Software-Deteksi-sel-TBC/TBC-Backend/issues"
   },
@@ -22,6 +22,7 @@
     "prisma": "^6.19.2"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.2"
+    "@prisma/client": "^6.19.2",
+    "zod": "^4.3.6"
   }
 }
