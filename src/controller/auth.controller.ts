@@ -1,5 +1,6 @@
 import { type Request, type Response } from "express";
-import { AppError } from "../errors/app.error.js";
+import { FORGOT_PASSWORD_SUCCESS_MESSAGE } from "../constants/auth.constants.js";
+import { sendErrorResponse } from "../middlewares/error-handler.middleware.js";
 import * as authService from "../services/auth.service.js";
 import {
   type ForgotPasswordInput,
@@ -7,21 +8,6 @@ import {
   type ResetPasswordInput,
   type UpdateCredentialInput,
 } from "../validations/auth.validation.js";
-
-const handleControllerError = (res: Response, error: unknown): void => {
-  if (error instanceof AppError) {
-    res.status(error.statusCode).json({
-      status: "error",
-      message: error.message,
-    });
-    return;
-  }
-
-  res.status(500).json({
-    status: "error",
-    message: "Terjadi kesalahan internal",
-  });
-};
 
 export const login = async (req: Request, res: Response) => {
   try {
@@ -40,7 +26,7 @@ export const login = async (req: Request, res: Response) => {
       },
     });
   } catch (error: unknown) {
-    handleControllerError(res, error);
+    sendErrorResponse(res, error);
   }
 };
 
@@ -54,7 +40,7 @@ export const updateCredential = async (req: Request, res: Response) => {
       message: "Credential berhasil diperbarui",
     });
   } catch (error: unknown) {
-    handleControllerError(res, error);
+    sendErrorResponse(res, error);
   }
 };
 
@@ -65,11 +51,10 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
     res.status(200).json({
       status: "success",
-      message:
-        "Jika email terdaftar, tautan reset password telah dikirim ke alamat email tersebut",
+      message: FORGOT_PASSWORD_SUCCESS_MESSAGE,
     });
   } catch (error: unknown) {
-    handleControllerError(res, error);
+    sendErrorResponse(res, error);
   }
 };
 
@@ -83,6 +68,6 @@ export const resetPassword = async (req: Request, res: Response) => {
       message: "Password berhasil direset",
     });
   } catch (error: unknown) {
-    handleControllerError(res, error);
+    sendErrorResponse(res, error);
   }
 };

@@ -1,20 +1,14 @@
 import { PrismaClient } from "@prisma/client";
 import { AppError } from "../errors/app.error.js";
+import {
+  type LoginTokenPayload,
+  type PasswordResetTokenPayload,
+  RESET_PASSWORD_PURPOSE,
+} from "../types/auth.types.js";
 import { comparePassword, hashPassword } from "../utils/hash.utils.js";
 import { generateToken, verifyToken } from "../utils/jwt.utils.js";
 
 const prisma = new PrismaClient();
-
-interface LoginTokenPayload {
-  id: string;
-  role: string;
-  is_first_login: boolean;
-}
-
-interface PasswordResetTokenPayload {
-  id: string;
-  purpose: "reset_password";
-}
 
 export const loginUser = async (email: string, passwordInput: string) => {
   const user = await prisma.user.findUnique({ where: { email } });
@@ -80,7 +74,7 @@ export const forgotPassword = async (email: string) => {
 
   const payload: PasswordResetTokenPayload = {
     id: user.id,
-    purpose: "reset_password",
+    purpose: RESET_PASSWORD_PURPOSE,
   };
 
   const resetToken = generateToken(payload, "15m");
@@ -90,8 +84,17 @@ export const forgotPassword = async (email: string) => {
 export const resetPassword = async (token: string, newPassword: string) => {
   const decoded = verifyToken<PasswordResetTokenPayload>(token);
 
-  if (decoded.purpose !== "reset_password") {
+  if (decoded.purpose !== RESET_PASSWORD_PURPOSE) {
     throw new AppError("Token reset password tidak valid", 401);
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+  if (!user) {
+    throw new AppError("Token reset password tidak valid", 401);
+  }
+
+  if (await comparePassword(newPassword, user.password_hash)) {
+    throw new AppError("Password baru tidak boleh sama dengan password saat ini", 400);
   }
 
   const hashedPassword = await hashPassword(newPassword);
