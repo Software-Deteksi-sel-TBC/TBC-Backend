@@ -18,12 +18,17 @@ export const loginSchema = z.object({
   password: passwordSchema,
 });
 
-export const updateCredentialSchema = z.object({
-  email: emailSchema,
-  currentPassword: passwordSchema,
-  newPassword: newPasswordSchema,
-  confirmPassword: newPasswordSchema,
-});
+export const updateCredentialSchema = z
+  .object({
+    email: emailSchema,
+    currentPassword: passwordSchema,
+    newPassword: newPasswordSchema,
+    confirmPassword: newPasswordSchema,
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Konfirmasi password tidak cocok",
+    path: ["confirmPassword"],
+  });
 
 export const forgotPasswordSchema = z.object({
   email: emailSchema,
