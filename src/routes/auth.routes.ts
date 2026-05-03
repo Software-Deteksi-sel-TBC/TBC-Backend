@@ -11,7 +11,7 @@ import {
 const router = express.Router();
 
 router.post('/login', validate(loginSchema), authController.login);
-router.post('/update-credential', validate(updateCredentialSchema), authController.updateCredential);
+router.post('/update-credentials', validate(updateCredentialSchema), authController.updateCredential);
 router.post('/forgot-password', validate(forgotPasswordSchema), authController.forgotPassword);
 router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
 

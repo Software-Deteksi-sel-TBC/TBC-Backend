@@ -1,14 +1,12 @@
-import { PrismaClient } from "@prisma/client";
 import { AppError } from "../errors/app.error.js";
 import {
   type LoginTokenPayload,
   type PasswordResetTokenPayload,
   RESET_PASSWORD_PURPOSE,
 } from "../types/auth.types.js";
+import { prisma } from "../config/prisma.js";
 import { comparePassword, hashPassword } from "../utils/hash.utils.js";
 import { generateToken, verifyToken } from "../utils/jwt.utils.js";
-
-const prisma = new PrismaClient();
 
 export const loginUser = async (email: string, passwordInput: string) => {
   const user = await prisma.user.findUnique({ where: { email } });
@@ -31,7 +29,8 @@ export const loginUser = async (email: string, passwordInput: string) => {
 export const updateCredential = async (
   email: string,
   currentPassword: string,
-  newPassword: string
+  newPassword: string,
+  confirmPassword: string
 ) => {
   const user = await prisma.user.findUnique({ where: { email } });
 
@@ -46,6 +45,10 @@ export const updateCredential = async (
   const isPasswordValid = await comparePassword(currentPassword, user.password_hash);
   if (!isPasswordValid) {
     throw new AppError("Email atau password tidak valid", 401);
+  }
+
+  if (newPassword !== confirmPassword) {
+    throw new AppError("Konfirmasi password tidak cocok", 400);
   }
 
   if (await comparePassword(newPassword, user.password_hash)) {
