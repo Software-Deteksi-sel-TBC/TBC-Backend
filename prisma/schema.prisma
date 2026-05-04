@@ -1,8 +1,11 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// =============================================================================
+// Sistem Deteksi TBC — Skema Prisma (PostgreSQL)
+// =============================================================================
+// Tujuan: pemodelan rekam medis + citra mikroskopis + jejak audit.
+// Konvensi: UUID untuk semua PK publik; waktu dalam UTC (DateTime Prisma).
+// Catatan kepatuhan: penghapusan fisik pasien/kasus biasanya dilarang — gunakan
+// arsitektur soft-delete + retention; batasi CASCADE hanya pada agregat turunan.
+// =============================================================================
 
 generator client {
   provider = "prisma-client-js"
@@ -11,14 +14,18 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-// ================= ENUMS =================
+// -----------------------------------------------------------------------------
+// ENUM — Domain klinis & workflow (disimpan sebagai tipe native PostgreSQL ENUM)
+// -----------------------------------------------------------------------------
 
+/// Peran pengguna. ADMIN_AI: administrasi / operasional modul AI sesuai kebutuhan proyek.
 enum Role {
   OPERATOR_LAB
-  DOKTER_PATOLOGI 
-  DOKTER_KLINIS //mungkin ini ga perlu
+  DOKTER_PATOLOGI
+  DOKTER_KLINIS
   ADMIN_AI
 }
 
@@ -41,7 +48,7 @@ enum SeverityLevel {
   RENDAH
   SEDANG
   TINGGI
-  SANGAT_INGGI
+  SANGAT_TINGGI
 }
 
 enum ProcessingStatus {
@@ -64,13 +71,17 @@ enum QcFailureReason {
   NOISE
 }
 
-enum Magnification { 
+/// Pembesaran objektif mikroskop (selaraskan dengan perangkat lab).
+enum Magnification {
   X10
   X40
+  X100
 }
 
-enum Staining { 
+/// Pewarnaan sediaan; ZN = Ziehl–Neelsen (relevan TBC); HE = hematoksilin-eosin.
+enum Staining {
   HE
+  ZN
 }
 
 enum CommentType {
@@ -78,8 +89,19 @@ enum CommentType {
   VALIDATION
 }
 
-// ================= MODELS =================
+/// Demografi — hindari string bebas untuk laporan & integrasi antar sistem.
+enum Sex {
+  LAKI_LAKI
+  PEREMPUAN
+  LAINNYA
+}
 
+// -----------------------------------------------------------------------------
+// MODEL
+// -----------------------------------------------------------------------------
+
+/// USERS: autentikasi + profil tenaga kesehatan (SIP, institusi).
+/// Rekomendasi aplikasi: jangan hapus user dengan jejak klinis — nonaktifkan.
 model User {
   id             String   @id @default(uuid())
   name           String
@@ -87,12 +109,13 @@ model User {
   password_hash  String
   role           Role
   is_first_login Boolean  @default(true)
+  is_active      Boolean  @default(true)
   sip_number     String?
   institution    String?
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
 
-  // Relasi
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
   patients_created Patient[]
   cases_created    Case[]
   images_uploaded  Image[]
@@ -101,184 +124,222 @@ model User {
   reports_made     Report[]
   audit_logs       AuditLog[]
 
+  @@index([role])
+  @@index([is_active])
   @@map("users")
 }
 
+/// PATIENTS: demografi pasien. NIK/BPJS unik untuk deduplikasi regional.
+/// Alamat disimpan sebagai Text untuk alamat panjang; pertimbangkan normalisasi
+/// wilayah (kode wilayah Kemendagri) jika integrasi SATUSEHAT/bridging.
 model Patient {
-  id               String   @id @default(uuid())
-  age              Int
-  name             String
-  sex              String
-  no_induk         String   @unique
-  bpjs_number      String   @unique
-  created_by       String
-  user             User     @relation(fields: [created_by], references: [id])
-  created_at       DateTime @default(now())
+  id          String   @id @default(uuid())
+  name        String
+  /// Nomor Induk Kependudukan — nama kolom DB tetap `no_induk` (kompatibilitas migrasi).
+  no_induk    String   @unique @map("no_induk")
+  bpjs_number String?  @unique
+  sex         Sex
+  /// Umur dalam tahun pada saat pendaftaran (pertimbangkan date_of_birth + computed jika perlu akurasi legal).
+  age         Int
+  address     String?  @db.Text
 
-  cases            Case[]
+  created_by String
+  user       User     @relation(fields: [created_by], references: [id], onDelete: Restrict)
+  created_at DateTime @default(now())
 
+  cases Case[]
+
+  @@index([created_by])
+  @@index([name])
   @@map("patients")
 }
 
+/// CASES: satu episode pemeriksaan untuk satu pasien (boleh banyak citra).
 model Case {
-  id             String     @id @default(uuid())
-  patient_id     String
-  patient        Patient    @relation(fields: [patient_id], references: [id])
-  created_by     String
-  user           User       @relation(fields: [created_by], references: [id])
-  status         CaseStatus @default(PENDING_UPLOAD)
-  notes          String?    @db.Text
-  created_at     DateTime   @default(now())
-  completed_at   DateTime?  //perlu ga ya?
+  id         String     @id @default(uuid())
+  patient_id String
+  patient    Patient    @relation(fields: [patient_id], references: [id], onDelete: Restrict)
+  created_by String
+  user       User       @relation(fields: [created_by], references: [id], onDelete: Restrict)
+  status     CaseStatus @default(PENDING_UPLOAD)
+  notes      String?    @db.Text
 
-  images         Image[]
-  consensus      Consensus[]
-  reports        Report[]
+  created_at     DateTime  @default(now())
+  completed_at   DateTime?
 
+  images    Image[]
+  consensus Consensus[]
+  reports   Report[]
+
+  @@index([patient_id])
+  @@index([created_by])
+  @@index([status])
+  @@index([created_at])
+  @@index([patient_id, status])
   @@map("cases")
 }
 
+/// IMAGES: metadata file citra; file biner di object storage, path disimpan di sini.
 model Image {
-  id                  String          @id @default(uuid())
-  case_id             String
-  case                Case            @relation(fields: [case_id], references: [id])
-  uploaded_by         String
-  user                User            @relation(fields: [uploaded_by], references: [id])
-  file_path           String
-  original_filename   String
-  mime_type           String
-  file_size_bytes     Int
-  qc_status           QcStatus        @default(PENDING)
-  qc_failure_reason   QcFailureReason?
-  qc_blur_score       Float?
-  qc_exposure_score   Float?
-  magnification       Magnification
-  staining            Staining        @default(HE)
-  uploaded_at         DateTime        @default(now())
-  checked_at          DateTime?
+  id                String          @id @default(uuid())
+  case_id           String
+  case              Case            @relation(fields: [case_id], references: [id], onDelete: Cascade)
+  uploaded_by       String
+  user              User            @relation(fields: [uploaded_by], references: [id], onDelete: Restrict)
+  file_path         String
+  original_filename String
+  mime_type         String
+  file_size_bytes   Int
+  qc_status         QcStatus        @default(PENDING)
+  qc_failure_reason QcFailureReason?
+  qc_blur_score     Float?
+  qc_exposure_score Float?
+  magnification     Magnification
+  staining          Staining        @default(HE)
+  uploaded_at       DateTime        @default(now())
+  checked_at        DateTime?
 
-  ai_result           AiResult?
-  comments            Comment[]
+  ai_result AiResult?
+  comments  Comment[]
 
+  @@index([case_id])
+  @@index([uploaded_by])
+  @@index([qc_status])
+  @@index([uploaded_at])
+  @@index([case_id, qc_status])
   @@map("images")
 }
 
-// TABEL INDUK: Kesimpulan global dari satu gambar citra
+/// AI_RESULTS: agregat inferensi per citra (1:1 dengan Image). Denormalisasi ringkasan
+/// disengaja untuk dashboard cepat; detail per-objek ada di AiFinding.
 model AiResult {
-  id                      String           @id @default(uuid())
-  image_id                String           @unique
-  image                   Image            @relation(fields: [image_id], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  image_id String @unique
+  image    Image  @relation(fields: [image_id], references: [id], onDelete: Cascade)
 
-  // -- ATRIBUT AGREGASI (DENORMALISASI) --
-  
-  // 1. Agregasi Area (Menggunakan Float untuk persentase)
-  total_necrosis_percent  Float? 
-  global_severity         SeverityLevel    @default(SANGAT_RENDAH)         
+  total_necrosis_percent  Float?
+  global_severity         SeverityLevel @default(SANGAT_RENDAH)
   total_granuloma_percent Float?
+  total_datia_count       Int?          @default(0)
+  total_epiteloid_count   Int?          @default(0)
+  mean_confidence         Float?
 
-  // 2. Agregasi Hitungan (Menggunakan Int untuk jumlah sel utuh)
-  total_datia_count       Int?             @default(0)
-  total_epiteloid_count   Int?             @default(0)
+  is_uncertain      Boolean          @default(false)
+  processing_status ProcessingStatus @default(QUEUED)
+  processed_at      DateTime?
 
-  // 3. Agregasi Kepercayaan AI
-  mean_confidence         Float?           // Nilai tengah akurasi AI untuk gambar ini
-  
-  // --------------------------------------
+  findings AiFinding[]
 
-  is_uncertain            Boolean          @default(false)
-  processing_status       ProcessingStatus @default(QUEUED)
-  processed_at            DateTime?
-
-  findings                AiFinding[]      
-
+  @@index([processing_status])
+  @@index([global_severity])
   @@map("ai_results")
 }
 
-// TABEL ANAK: Detail dari setiap objek (Nekrosis, Datia, dll) yang ditemukan
+/// AI_FINDINGS: deteksi per struktur (bounding box / mask). JSONB untuk query & indeks GIN.
 model AiFinding {
-  id                String      @id @default(uuid())
-  ai_result_id      String
-  ai_result         AiResult    @relation(fields: [ai_result_id], references: [id], onDelete: Cascade)
+  id           String      @id @default(uuid())
+  ai_result_id String
+  ai_result    AiResult    @relation(fields: [ai_result_id], references: [id], onDelete: Cascade)
+  finding_type FindingType
+  confidence_score Float
 
-  // Identifikasi Objek
-  finding_type      FindingType // Jenis biomarka (contoh: DATIA_LANGHANS)
-  confidence_score  Float       // Skor akurasi AI untuk SATU objek ini saja (contoh: 0.95)
-  
-  // Pengukuran (Bisa null karena metriknya beda-beda tiap objek)
-  area_percent      Float?      // Sangat berguna untuk Nekrosis / Granuloma
-  count             Int?        // Sangat berguna untuk jumlah sel Datia / Epiteloid
-  
-  // Koordinat Visual
-  segmentation_mask Json        // Menyimpan array koordinat (X, Y) / Bounding Box / Polygon
+  area_percent Float?
+  count        Int?
 
+  /// Geometri deteksi: polygon / bbox — gunakan JsonB di PostgreSQL untuk indexing opsional.
+  segmentation_mask Json @db.JsonB
+
+  @@index([ai_result_id])
+  @@index([finding_type])
+  @@index([segmentation_mask(ops: JsonbPathOps)], type: Gin)
   @@map("ai_findings")
 }
 
+/// COMMENTS: anotasi pada tingkat citra. type=VALIDATION membuka extension Validation (1:1).
 model Comment {
-  id              String      @id @default(uuid())
-  image_id        String
-  image           Image       @relation(fields: [image_id], references: [id])
-  commentator_id  String
-  user            User        @relation(fields: [commentator_id], references: [id])
-  content         String      @db.Text
-  type            CommentType
-  submitted_at    DateTime    @default(now())
+  id             String      @id @default(uuid())
+  image_id       String
+  image          Image       @relation(fields: [image_id], references: [id], onDelete: Cascade)
+  commentator_id String
+  user           User        @relation(fields: [commentator_id], references: [id], onDelete: Restrict)
+  content        String      @db.Text
+  type           CommentType
+  submitted_at   DateTime    @default(now())
 
-  // Relasi 1:1 untuk mengakomodasi "inherits" di Prisma
-  validation      Validation?
+  validation Validation?
 
+  @@index([image_id])
+  @@index([commentator_id])
+  @@index([type])
+  @@index([submitted_at])
   @@map("comments")
 }
 
-// Karena "inherits" tidak ada di Prisma, kita jadikan comment_id sebagai PK sekaligus FK
+/// VALIDATION: subset klinis dari komentar (tingkat keparahan + opini bakteri).
 model Validation {
-  comment_id      String           @id
-  comment         Comment          @relation(fields: [comment_id], references: [id], onDelete: Cascade)
-  severity        SeverityLevel
+  comment_id String @id
+  comment    Comment @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+  severity   SeverityLevel
+  /// Interpretasi klinis: apakah mikobakteria / BTA relevan terlihat (sesuai kebutuhan laporan).
+  bacteria_present Boolean?
 
   @@map("validations")
 }
 
+/// CONSENSUS: ringkasan tingkat kasus (boleh banyak putaran waktu multipatologi).
 model Consensus {
-  id              String            @id @default(uuid())
-  case_id         String
-  case            Case              @relation(fields: [case_id], references: [id])
-  commentator_id  String
-  user            User              @relation(fields: [commentator_id], references: [id])
-  severity        SeverityLevel
-  comment         String?           @db.Text
-  submitted_at    DateTime          @default(now())
+  id             String   @id @default(uuid())
+  case_id        String
+  case           Case     @relation(fields: [case_id], references: [id], onDelete: Cascade)
+  commentator_id String
+  user           User     @relation(fields: [commentator_id], references: [id], onDelete: Restrict)
+  severity       SeverityLevel
+  comment        String?  @db.Text
+  submitted_at   DateTime @default(now())
 
+  @@index([case_id])
+  @@index([commentator_id])
+  @@index([submitted_at])
   @@map("consensus")
 }
 
+/// REPORTS: dokumen akhir; tanda tangan digital — simpan hash atau referensi ke HSM sesuai kebijakan RS.
 model Report {
-  id                 String        @id @default(uuid())
-  case_id            String
-  case               Case          @relation(fields: [case_id], references: [id])
-  generated_by       String
-  user               User          @relation(fields: [generated_by], references: [id])
-  file_path          String
-  severity           SeverityLevel
-  pathologist_notes  String?       @db.Text
-  diagnosis_summary  String?       @db.Text
-  is_signed          Boolean       @default(false)
-  digital_signature  String?
-  generated_at       DateTime      @default(now())
-  signed_at          DateTime?
+  id                String        @id @default(uuid())
+  case_id           String
+  case              Case          @relation(fields: [case_id], references: [id], onDelete: Restrict)
+  generated_by      String
+  user              User          @relation(fields: [generated_by], references: [id], onDelete: Restrict)
+  file_path         String
+  severity          SeverityLevel
+  pathologist_notes String?       @db.Text
+  diagnosis_summary String?       @db.Text
+  is_signed         Boolean       @default(false)
+  digital_signature String?
+  generated_at      DateTime      @default(now())
+  signed_at         DateTime?
 
+  @@index([case_id])
+  @@index([generated_by])
+  @@index([is_signed])
   @@map("reports")
 }
 
+/// AUDIT_LOGS: append-only; payload JSONB untuk diff ringkas. Pertimbangkan partisi per bulan pada skala besar.
 model AuditLog {
-  id           String   @id @default(uuid())
-  user_id      String
-  user         User     @relation(fields: [user_id], references: [id])
-  action       String
-  entity_id    String
-  entity_type  String
-  payload      Json?
-  created_at   DateTime @default(now())
+  id          String   @id @default(uuid())
+  user_id     String
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  action      String
+  entity_type String
+  entity_id   String
+  payload     Json?    @db.JsonB
+  created_at  DateTime @default(now())
 
+  @@index([user_id])
+  @@index([entity_type, entity_id])
+  @@index([created_at])
+  @@index([user_id, created_at])
+  @@index([payload(ops: JsonbPathOps)], type: Gin)
   @@map("audit_logs")
 }
