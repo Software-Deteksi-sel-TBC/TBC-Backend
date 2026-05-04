@@ -18,7 +18,7 @@ export const login = async (req: Request, res: Response) => {
       status: "success",
       message: "Login berhasil",
       token,
-      data: {
+      user: {
         id: user.id,
         name: user.name,
         role: user.role,
@@ -32,8 +32,14 @@ export const login = async (req: Request, res: Response) => {
 
 export const updateCredential = async (req: Request, res: Response) => {
   try {
-    const { email, currentPassword, newPassword } = req.body as UpdateCredentialInput;
-    await authService.updateCredential(email, currentPassword, newPassword);
+    const { email, currentPassword, newPassword, confirmPassword } =
+      req.body as UpdateCredentialInput;
+    await authService.updateCredential(
+      email,
+      currentPassword,
+      newPassword,
+      confirmPassword,
+    );
 
     res.status(200).json({
       status: "success",
