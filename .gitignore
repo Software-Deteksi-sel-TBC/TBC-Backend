@@ -12,3 +12,4 @@ src/**/*.d.ts
 src/**/*.d.ts.map
 # Prisma generated files
 /src/generated/prisma
+CLAUDE.md

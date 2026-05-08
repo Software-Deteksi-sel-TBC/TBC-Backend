@@ -1,4 +1,4 @@
-import { AppError } from "../errors/app.error.js";
+﻿import { AppError } from "../errors/app.error.js";
 import {
   type LoginTokenPayload,
   type PasswordResetTokenPayload,
@@ -11,7 +11,7 @@ import { generateToken, verifyToken } from "../utils/jwt.utils.js";
 export const loginUser = async (email: string, passwordInput: string) => {
   const user = await prisma.user.findUnique({ where: { email } });
 
-  if (!user || !(await comparePassword(passwordInput, user.password_hash))) {
+  if (!user || !user.is_active || !(await comparePassword(passwordInput, user.password_hash))) {
     throw new AppError("Email atau password tidak valid", 401);
   }
 
