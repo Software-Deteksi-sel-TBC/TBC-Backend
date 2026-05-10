@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const z = require\\('zod'\\); console.log\\(require\\('./node_modules/zod/package.json'\\).version\\)\")",
+      "Bash(npm test *)"
+    ]
+  }
+}

@@ -25,7 +25,6 @@ datasource db {
 enum Role {
   OPERATOR_LAB
   DOKTER_PATOLOGI
-  DOKTER_KLINIS
   ADMIN_AI
 }
 
@@ -141,7 +140,6 @@ model Patient {
   sex         Sex
   /// Umur dalam tahun pada saat pendaftaran (pertimbangkan date_of_birth + computed jika perlu akurasi legal).
   age         Int
-  address     String?  @db.Text
 
   created_by String
   user       User     @relation(fields: [created_by], references: [id], onDelete: Restrict)

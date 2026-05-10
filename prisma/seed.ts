@@ -1,4 +1,4 @@
-import { Role, Sex, CaseStatus } from '@prisma/client';
+import { Role, Sex, CaseStatus, QcStatus, Magnification, Staining, QcFailureReason, type Case } from '@prisma/client';
 import { prisma } from '../src/config/prisma.js';
 import bcrypt from 'bcrypt';
 
@@ -56,20 +56,20 @@ async function main() {
   });
   console.log(`✅ User dibuat: ${patolog.role} - ${patolog.email}`);
 
-  const klinis = await prisma.user.upsert({
+  const patolog2 = await prisma.user.upsert({
     where: { email: 'dr.siti@rumahsakit.com' },
     update: {},
     create: {
-      name: 'dr. Siti Aminah, Sp.P',
+      name: 'dr. Siti Aminah, Sp.PA',
       email: 'dr.siti@rumahsakit.com',
       password_hash: defaultPasswordHash,
-      role: Role.DOKTER_KLINIS,
+      role: Role.DOKTER_PATOLOGI,
       is_first_login: true,
       sip_number: 'SIP/98765/2026',
       institution: 'RS Pusat Medika',
     },
   });
-  console.log(`✅ User dibuat: ${klinis.role} - ${klinis.email}`);
+  console.log(`✅ User dibuat: ${patolog2.role} - ${patolog2.email}`);
 
   // =========================================================================
   // 2. SEEDING PATIENTS (TRANSACTIONAL DUMMY)
@@ -83,7 +83,6 @@ async function main() {
       bpjs_number: '0000111122221',
       sex: Sex.LAKI_LAKI,
       age: 45,
-      address: 'Jl. Merdeka No. 1, Bogor, Jawa Barat',
       created_by: operator.id,
     },
     {
@@ -92,7 +91,6 @@ async function main() {
       bpjs_number: '0000111122222',
       sex: Sex.PEREMPUAN,
       age: 32,
-      address: 'Jl. Sudirman No. 10, Bogor, Jawa Barat',
       created_by: operator.id,
     },
     {
@@ -135,23 +133,196 @@ async function main() {
     },
     {
       patient_id: createdPatients[2].id,
-      created_by: admin.id, // Admin juga boleh membuat case (contoh kasus migrasi data)
+      created_by: admin.id,
       status: CaseStatus.RESOLVED,
       notes: 'Skrining pasif. Laporan sudah ditandatangani digital.',
-    }
+    },
+    {
+      patient_id: createdPatients[0].id,
+      created_by: operator.id,
+      status: CaseStatus.AI_PROCESSING,
+      notes: 'Pemeriksaan lanjutan. Citra sudah diupload, menunggu hasil analisis AI.',
+    },
+    {
+      patient_id: createdPatients[1].id,
+      created_by: operator.id,
+      status: CaseStatus.RESOLVED,
+      notes: 'Kontrol bulan ke-6. Pasien dinyatakan sembuh.',
+    },
   ];
 
+  const createdCases: Case[] = [];
   for (const c of casesToCreate) {
-    // Mencegah duplikasi Case jika seeding dijalankan ulang
     const existingCase = await prisma.case.findFirst({
       where: { patient_id: c.patient_id, status: c.status }
     });
 
     if (!existingCase) {
       const newCase = await prisma.case.create({ data: c });
+      createdCases.push(newCase);
       console.log(`✅ Kasus dibuat: ID ${newCase.id} | Status: ${newCase.status}`);
     } else {
+      createdCases.push(existingCase);
       console.log(`ℹ️ Kasus untuk pasien ID ${c.patient_id} dengan status ${c.status} sudah ada, dilewati.`);
+    }
+  }
+
+  // =========================================================================
+  // 4. SEEDING IMAGES (TRANSACTIONAL DUMMY)
+  // Distribusi QC status sesuai alur kerja: FAILED hanya ada di PENDING_UPLOAD
+  // =========================================================================
+
+  const now = new Date();
+
+  const imagesData = [
+    // Case[0] PENDING_UPLOAD — 1 PASSED + 1 FAILED (operator sedang review QC)
+    {
+      case_id: createdCases[0].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case1/sample_40x_1.tiff',
+      original_filename: 'sample_40x_1.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 2048000,
+      qc_status: QcStatus.PASSED,
+      magnification: Magnification.X40,
+      staining: Staining.HE,
+      checked_at: now,
+    },
+    {
+      case_id: createdCases[0].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case1/sample_blur_failed.tiff',
+      original_filename: 'sample_blur_failed.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 1500000,
+      qc_status: QcStatus.FAILED,
+      qc_failure_reason: QcFailureReason.BLUR,
+      qc_blur_score: 0.12,
+      magnification: Magnification.X40,
+      staining: Staining.HE,
+      checked_at: now,
+    },
+    // Case[1] PENDING_VALIDATION — 3 PASSED (sudah submit)
+    {
+      case_id: createdCases[1].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case2/sample_40x_1.tiff',
+      original_filename: 'sample_40x_1.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 2048000,
+      qc_status: QcStatus.PASSED,
+      magnification: Magnification.X40,
+      staining: Staining.HE,
+      checked_at: now,
+    },
+    {
+      case_id: createdCases[1].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case2/sample_10x_1.tiff',
+      original_filename: 'sample_10x_1.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 1024000,
+      qc_status: QcStatus.PASSED,
+      magnification: Magnification.X10,
+      staining: Staining.ZN,
+      checked_at: now,
+    },
+    {
+      case_id: createdCases[1].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case2/sample_40x_2.tiff',
+      original_filename: 'sample_40x_2.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 2100000,
+      qc_status: QcStatus.PASSED,
+      magnification: Magnification.X40,
+      staining: Staining.HE,
+      checked_at: now,
+    },
+    // Case[2] RESOLVED (Patient X) — 2 PASSED
+    {
+      case_id: createdCases[2].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case3/sample_40x_1.tiff',
+      original_filename: 'sample_40x_1.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 2048000,
+      qc_status: QcStatus.PASSED,
+      magnification: Magnification.X40,
+      staining: Staining.HE,
+      checked_at: now,
+    },
+    {
+      case_id: createdCases[2].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case3/sample_40x_2.tiff',
+      original_filename: 'sample_40x_2.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 1900000,
+      qc_status: QcStatus.PASSED,
+      magnification: Magnification.X40,
+      staining: Staining.ZN,
+      checked_at: now,
+    },
+    // Case[3] AI_PROCESSING (Patient Ahmad) — 2 PASSED
+    {
+      case_id: createdCases[3].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case4/sample_40x_1.tiff',
+      original_filename: 'sample_40x_1.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 2200000,
+      qc_status: QcStatus.PASSED,
+      magnification: Magnification.X40,
+      staining: Staining.HE,
+      checked_at: now,
+    },
+    {
+      case_id: createdCases[3].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case4/sample_10x_1.tiff',
+      original_filename: 'sample_10x_1.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 980000,
+      qc_status: QcStatus.PASSED,
+      magnification: Magnification.X10,
+      staining: Staining.HE,
+      checked_at: now,
+    },
+    // Case[4] RESOLVED (Patient Ratna, kontrol ke-6) — 2 PASSED
+    {
+      case_id: createdCases[4].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case5/sample_40x_1.tiff',
+      original_filename: 'sample_40x_1.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 2050000,
+      qc_status: QcStatus.PASSED,
+      magnification: Magnification.X40,
+      staining: Staining.HE,
+      checked_at: now,
+    },
+    {
+      case_id: createdCases[4].id,
+      uploaded_by: operator.id,
+      file_path: 'histopath/case5/sample_40x_2.tiff',
+      original_filename: 'sample_40x_2.tiff',
+      mime_type: 'image/tiff',
+      file_size_bytes: 1750000,
+      qc_status: QcStatus.PASSED,
+      magnification: Magnification.X40,
+      staining: Staining.ZN,
+      checked_at: now,
+    },
+  ];
+
+  for (const img of imagesData) {
+    const existing = await prisma.image.findFirst({ where: { file_path: img.file_path } });
+    if (!existing) {
+      await prisma.image.create({ data: img });
+      console.log(`✅ Image dibuat: ${img.original_filename} (QC: ${img.qc_status})`);
+    } else {
+      console.log(`ℹ️ Image ${img.original_filename} sudah ada, dilewati.`);
     }
   }
 
