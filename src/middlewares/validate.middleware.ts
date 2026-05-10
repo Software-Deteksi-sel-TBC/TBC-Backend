@@ -1,14 +1,23 @@
 import { type Request, type Response, type NextFunction } from "express";
-import { type ZodTypeAny, ZodError } from "zod";
+import { type ZodType, z } from "zod";
 
 export const validate =
-  <TSchema extends ZodTypeAny>(schema: TSchema) =>
+  <TSchema extends ZodType>(schema: TSchema, source: "body" | "query" = "body") =>
   (req: Request, res: Response, next: NextFunction): void => {
     try {
-      req.body = schema.parse(req.body);
+      const parsed = schema.parse(req[source]);
+      if (source === "body") {
+        req.body = parsed;
+      } else {
+        Object.defineProperty(req, "query", {
+          value: parsed,
+          writable: true,
+          configurable: true,
+        });
+      }
       next();
     } catch (error: unknown) {
-      if (error instanceof ZodError) {
+      if (error instanceof z.ZodError) {
         const firstIssue = error.issues[0];
         res.status(400).json({
           status: "error",
