@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth.routes.js';
 import patientRoutes from './routes/patient.routes.js';
 import caseRoutes from './routes/case.routes.js';
+import { caseImageRouter, standaloneImageRouter } from './routes/image.routes.js';
 import cors from 'cors';
 dotenv.config();
 
@@ -20,6 +21,8 @@ app.use(cors(corsOptions));
 app.use('/api/auth', authRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/cases', caseRoutes);
+app.use('/api/cases', caseImageRouter);
+app.use('/api/images', standaloneImageRouter);
 
 app.get('/', (req: Request, res: Response) => {
   res.send('Express + TypeScript Server is running!');

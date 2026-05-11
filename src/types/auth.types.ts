@@ -1,6 +1,8 @@
+import { type Role } from "@prisma/client";
+
 export interface LoginTokenPayload {
   id: string;
-  role: string;
+  role: Role;
   is_first_login: boolean;
 }
 
