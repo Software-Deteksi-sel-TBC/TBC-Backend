@@ -12,8 +12,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -83,9 +83,12 @@ enum Staining {
   ZN
 }
 
-enum CommentType {
-  COMMENT
-  VALIDATION
+/// Level count per HPF (High Power Field) untuk validasi struktur sel — mengikuti standar grading patologi 0/1+/2+/3+.
+enum HpfCountLevel {
+  TIDAK_ADA
+  JARANG
+  CUKUP_BANYAK
+  SANGAT_BANYAK
 }
 
 /// Demografi — hindari string bebas untuk laporan & integrasi antar sistem.
@@ -102,13 +105,13 @@ enum Sex {
 /// USERS: autentikasi + profil tenaga kesehatan (SIP, institusi).
 /// Rekomendasi aplikasi: jangan hapus user dengan jejak klinis — nonaktifkan.
 model User {
-  id             String   @id @default(uuid())
+  id             String  @id @default(uuid())
   name           String
-  email          String   @unique
+  email          String  @unique
   password_hash  String
   role           Role
-  is_first_login Boolean  @default(true)
-  is_active      Boolean  @default(true)
+  is_first_login Boolean @default(true)
+  is_active      Boolean @default(true)
   sip_number     String?
   institution    String?
 
@@ -119,6 +122,7 @@ model User {
   cases_created    Case[]
   images_uploaded  Image[]
   comments_made    Comment[]
+  validations_made Validation[]
   consensus_made   Consensus[]
   reports_made     Report[]
   audit_logs       AuditLog[]
@@ -132,11 +136,11 @@ model User {
 /// Alamat disimpan sebagai Text untuk alamat panjang; pertimbangkan normalisasi
 /// wilayah (kode wilayah Kemendagri) jika integrasi SATUSEHAT/bridging.
 model Patient {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   name        String
   /// Nomor Induk Kependudukan — nama kolom DB tetap `no_induk` (kompatibilitas migrasi).
-  no_induk    String   @unique @map("no_induk")
-  bpjs_number String?  @unique
+  no_induk    String  @unique @map("no_induk")
+  bpjs_number String? @unique
   sex         Sex
   /// Umur dalam tahun pada saat pendaftaran (pertimbangkan date_of_birth + computed jika perlu akurasi legal).
   age         Int
@@ -162,8 +166,8 @@ model Case {
   status     CaseStatus @default(PENDING_UPLOAD)
   notes      String?    @db.Text
 
-  created_at     DateTime  @default(now())
-  completed_at   DateTime?
+  created_at   DateTime  @default(now())
+  completed_at DateTime?
 
   images    Image[]
   consensus Consensus[]
@@ -179,26 +183,27 @@ model Case {
 
 /// IMAGES: metadata file citra; file biner di object storage, path disimpan di sini.
 model Image {
-  id                String          @id @default(uuid())
+  id                String           @id @default(uuid())
   case_id           String
-  case              Case            @relation(fields: [case_id], references: [id], onDelete: Cascade)
+  case              Case             @relation(fields: [case_id], references: [id], onDelete: Cascade)
   uploaded_by       String
-  user              User            @relation(fields: [uploaded_by], references: [id], onDelete: Restrict)
+  user              User             @relation(fields: [uploaded_by], references: [id], onDelete: Restrict)
   file_path         String
   original_filename String
   mime_type         String
   file_size_bytes   Int
-  qc_status         QcStatus        @default(PENDING)
+  qc_status         QcStatus         @default(PENDING)
   qc_failure_reason QcFailureReason?
   qc_blur_score     Float?
   qc_exposure_score Float?
   magnification     Magnification
-  staining          Staining        @default(HE)
-  uploaded_at       DateTime        @default(now())
+  staining          Staining         @default(HE)
+  uploaded_at       DateTime         @default(now())
   checked_at        DateTime?
 
-  ai_result AiResult?
-  comments  Comment[]
+  ai_result  AiResult?
+  comments   Comment[]
+  validation Validation?
 
   @@index([case_id])
   @@index([uploaded_by])
@@ -235,10 +240,10 @@ model AiResult {
 
 /// AI_FINDINGS: deteksi per struktur (bounding box / mask). JSONB untuk query & indeks GIN.
 model AiFinding {
-  id           String      @id @default(uuid())
-  ai_result_id String
-  ai_result    AiResult    @relation(fields: [ai_result_id], references: [id], onDelete: Cascade)
-  finding_type FindingType /// nekrosis granuloma, sel datia langhans, sel epiteloid
+  id               String      @id @default(uuid())
+  ai_result_id     String
+  ai_result        AiResult    @relation(fields: [ai_result_id], references: [id], onDelete: Cascade)
+  finding_type     FindingType /// nekrosis granuloma, sel datia langhans, sel epiteloid
   confidence_score Float
 
   area_percent Float? /// persen area yang terdeteksi
@@ -253,47 +258,65 @@ model AiFinding {
   @@map("ai_findings")
 }
 
-/// COMMENTS: anotasi pada tingkat citra. type=VALIDATION membuka extension Validation (1:1).
+/// COMMENTS: diskusi terbuka antar patolog pada tingkat citra. Validasi terstruktur ada di model Validation.
 model Comment {
-  id             String      @id @default(uuid())
+  id             String   @id @default(uuid())
   image_id       String
-  image          Image       @relation(fields: [image_id], references: [id], onDelete: Cascade)
+  image          Image    @relation(fields: [image_id], references: [id], onDelete: Cascade)
   commentator_id String
-  user           User        @relation(fields: [commentator_id], references: [id], onDelete: Restrict)
-  content        String      @db.Text
-  type           CommentType
-  submitted_at   DateTime    @default(now())
-
-  validation Validation?
+  user           User     @relation(fields: [commentator_id], references: [id], onDelete: Restrict)
+  content        String   @db.Text
+  submitted_at   DateTime @default(now())
 
   @@index([image_id])
   @@index([commentator_id])
-  @@index([type])
   @@index([submitted_at])
   @@map("comments")
 }
 
-/// VALIDATION: subset klinis dari komentar (tingkat keparahan + opini bakteri).
+/// VALIDATION: hasil validasi patolog per citra. 1:1 dengan Image — hanya 1 validasi final per citra.
+/// Patolog memvalidasi prediksi AI menggunakan label kategorikal (bukan angka eksak):
+/// - Persentase area (necrosis, granuloma) → SeverityLevel
+/// - Count cell (datia langhans, epithelioid) → HpfCountLevel (standar grading per HPF)
+/// Error AI untuk training masa depan dihitung implisit via JOIN dengan AiResult.
 model Validation {
-  comment_id String @id
-  comment    Comment @relation(fields: [comment_id], references: [id], onDelete: Cascade)
-  severity   SeverityLevel
-  /// Interpretasi klinis: apakah mikobakteria / BTA relevan terlihat (sesuai kebutuhan laporan).
-  bacteria_present Boolean?
+  id           String @id @default(uuid())
+  image_id     String @unique
+  image        Image  @relation(fields: [image_id], references: [id], onDelete: Cascade)
+  validator_id String
+  validator    User   @relation(fields: [validator_id], references: [id], onDelete: Restrict)
 
+  /// Severity klinis global hasil validasi patolog.
+  global_severity         SeverityLevel
+  /// Tingkat persentase necrosis hasil validasi patolog (frontend pre-fill dari AiResult).
+  necrosis_severity       SeverityLevel?
+  /// Tingkat persentase granuloma hasil validasi patolog.
+  granuloma_severity      SeverityLevel?
+  /// Tingkat kehadiran datia langhans per HPF.
+  datia_count_level       HpfCountLevel?
+  /// Tingkat kehadiran epithelioid cell per HPF.
+  epithelioid_count_level HpfCountLevel?
+
+  /// Catatan patolog: free-text, juga tempat catat error AI yang signifikan untuk training development.
+  validation_comment String? @db.Text
+
+  submitted_at DateTime @default(now())
+
+  @@index([validator_id])
+  @@index([submitted_at])
   @@map("validations")
 }
 
 /// CONSENSUS: ringkasan tingkat kasus (boleh banyak putaran waktu multipatologi).
 model Consensus {
-  id             String   @id @default(uuid())
+  id             String        @id @default(uuid())
   case_id        String
-  case           Case     @relation(fields: [case_id], references: [id], onDelete: Cascade)
+  case           Case          @relation(fields: [case_id], references: [id], onDelete: Cascade)
   commentator_id String
-  user           User     @relation(fields: [commentator_id], references: [id], onDelete: Restrict)
+  user           User          @relation(fields: [commentator_id], references: [id], onDelete: Restrict)
   severity       SeverityLevel
-  comment        String?  @db.Text
-  submitted_at   DateTime @default(now())
+  comment        String?       @db.Text
+  submitted_at   DateTime      @default(now())
 
   @@index([case_id])
   @@index([commentator_id])
