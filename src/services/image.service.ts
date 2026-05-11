@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../errors/app.error.js";
+import { assertSameInstitution } from "../utils/access.utils.js";
 import {
   buildFilePath,
   createPresignedUploadUrl,
@@ -8,20 +9,6 @@ import {
   deleteFile,
 } from "../utils/supabase-storage.utils.js";
 import { type RequestPresignedUrlsInput, type ConfirmUploadInput } from "../validations/image.validation.js";
-
-const assertSameInstitution = async (operatorId: string, caseCreatorId: string) => {
-  const [operator, creator] = await Promise.all([
-    prisma.user.findUnique({ where: { id: operatorId }, select: { institution: true } }),
-    prisma.user.findUnique({ where: { id: caseCreatorId }, select: { institution: true } }),
-  ]);
-
-  if (!operator?.institution || !creator?.institution) {
-    throw new AppError("Akses ditolak: institusi tidak terdaftar", 403);
-  }
-  if (operator.institution !== creator.institution) {
-    throw new AppError("Akses ditolak: kasus milik institusi lain", 403);
-  }
-};
 
 const STALE_PENDING_TTL_MS = 2 * 60 * 60 * 1000; // 2 jam
 
