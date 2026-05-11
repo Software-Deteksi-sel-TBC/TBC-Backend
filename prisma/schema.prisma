@@ -216,7 +216,7 @@ model AiResult {
   image    Image  @relation(fields: [image_id], references: [id], onDelete: Cascade)
 
   total_necrosis_percent  Float?
-  global_severity         SeverityLevel @default(SANGAT_RENDAH)
+  global_severity         SeverityLevel @default(SANGAT_RENDAH) /// sangat rendah, rendah, sedang, tinggi, sangat tinggi
   total_granuloma_percent Float?
   total_datia_count       Int?          @default(0)
   total_epiteloid_count   Int?          @default(0)
@@ -238,11 +238,11 @@ model AiFinding {
   id           String      @id @default(uuid())
   ai_result_id String
   ai_result    AiResult    @relation(fields: [ai_result_id], references: [id], onDelete: Cascade)
-  finding_type FindingType
+  finding_type FindingType /// nekrosis granuloma, sel datia langhans, sel epiteloid
   confidence_score Float
 
-  area_percent Float?
-  count        Int?
+  area_percent Float? /// persen area yang terdeteksi
+  count        Int? /// jumlah yang terdeteksi
 
   /// Geometri deteksi: polygon / bbox — gunakan JsonB di PostgreSQL untuk indexing opsional.
   segmentation_mask Json @db.JsonB
