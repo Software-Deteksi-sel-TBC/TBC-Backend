@@ -86,7 +86,7 @@ backend-tbc/
 │   ├── controller/             # Handler HTTP — hanya baca req, panggil service, kirim res
 │   ├── services/               # Business logic — semua logika domain di sini
 │   ├── validations/            # Zod schemas per domain
-│   ├── middlewares/            # validate.middleware, error-handler, auth guard (belum ada)
+│   ├── middlewares/            # validate.middleware, error-handler, authenticate.middleware
 │   ├── utils/                  # Fungsi stateless: jwt.utils, hash.utils
 │   ├── types/                  # TypeScript interfaces dan type definitions
 │   ├── errors/                 # Custom AppError class
@@ -268,17 +268,18 @@ Untuk menjaga kerahasiaan data pasien, akun user tidak bisa dibuat sendiri. Alur
 
 > `/update-credentials` hanya berlaku saat `is_first_login = true`. Jika user sudah pernah login, gunakan alur forgot/reset password.
 
-### 5.2 Dashboard Operator (BELUM DIIMPLEMENTASI)
+### 5.2 Dashboard Operator ✅
 
 > Semua endpoint di bagian ini **hanya bisa diakses oleh `OPERATOR_LAB`** (kecuali yang ditandai khusus).
 
 **Manajemen Pasien:**
 
-| Endpoint              | Method | Deskripsi                                            |
-|-----------------------|--------|------------------------------------------------------|
-| `GET /api/patients`   | GET    | List pasien dengan filter nama/NIK, pagination       |
-| `POST /api/patients`  | POST   | Daftarkan pasien baru                                |
-| `GET /api/patients/:id` | GET  | Detail pasien + riwayat kasus                        |
+| Endpoint                  | Method | Deskripsi                                            |
+|---------------------------|--------|------------------------------------------------------|
+| `GET /api/patients`       | GET    | List pasien dengan filter nama/NIK, pagination       |
+| `POST /api/patients`      | POST   | Daftarkan pasien baru                                |
+| `GET /api/patients/:id`   | GET    | Detail pasien + riwayat kasus                        |
+| `PATCH /api/patients/:id` | PATCH  | Update data pasien                                   |
 
 **Manajemen Kasus:**
 
@@ -294,7 +295,7 @@ Untuk menjaga kerahasiaan data pasien, akun user tidak bisa dibuat sendiri. Alur
 |---------------------------|--------|----------------------------------------------------|
 | `GET /api/dashboard/stats`| GET    | Ringkasan: total kasus hari ini, pending upload, dll. |
 
-### 5.3 Upload Citra (BELUM DIIMPLEMENTASI)
+### 5.3 Upload Citra ✅
 
 > Hanya `OPERATOR_LAB` yang dapat mengakses semua endpoint di bagian ini.
 
