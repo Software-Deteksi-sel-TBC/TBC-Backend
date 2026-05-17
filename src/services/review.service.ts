@@ -55,6 +55,49 @@ export const getReviewQueue = async (patologId: string, page?: string, limit?: s
   return { data: enriched, meta: { total, page: p, limit: l } };
 };
 
+export const getCaseImages = async (caseId: string, patologId: string) => {
+  const kasus = await prisma.case.findUnique({
+    where: { id: caseId },
+    select: { status: true, created_by: true },
+  });
+
+  if (!kasus) throw new AppError("Kasus tidak ditemukan", 404);
+  if (kasus.status === "PENDING_UPLOAD") {
+    throw new AppError("Kasus belum siap untuk direview", 403);
+  }
+
+  await assertSameInstitution(patologId, kasus.created_by);
+
+  const images = await prisma.image.findMany({
+    where: { case_id: caseId, qc_status: "PASSED" },
+    orderBy: { uploaded_at: "asc" },
+    select: {
+      id: true,
+      original_filename: true,
+      magnification: true,
+      ai_result: {
+        select: { global_severity: true, is_uncertain: true },
+      },
+      validation: {
+        select: {
+          global_severity: true,
+          validator: { select: { name: true } },
+        },
+      },
+    },
+  });
+
+  return images.map((img) => ({
+    id: img.id,
+    original_filename: img.original_filename,
+    magnification: img.magnification,
+    is_validated: img.validation !== null,
+    global_severity: img.validation?.global_severity ?? img.ai_result?.global_severity ?? null,
+    is_ai_uncertain: img.validation ? null : (img.ai_result?.is_uncertain ?? null),
+    validated_by: img.validation?.validator.name ?? null,
+  }));
+};
+
 export const getResolvedQueue = async (patologId: string, page?: string, limit?: string) => {
   const { skip, take, page: p, limit: l } = getPaginationParams(page, limit);
 

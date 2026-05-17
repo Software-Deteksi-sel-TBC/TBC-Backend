@@ -17,6 +17,22 @@ export const getReviewQueue = async (req: Request, res: Response) => {
   }
 };
 
+export const getCaseImages = async (req: Request, res: Response) => {
+  try {
+    const images = await reviewService.getCaseImages(
+      req.params.caseId as string,
+      req.user!.id
+    );
+    res.status(200).json({
+      status: "success",
+      message: "Daftar citra kasus berhasil diambil",
+      data: images,
+    });
+  } catch (error: unknown) {
+    sendErrorResponse(res, error);
+  }
+};
+
 export const getResolvedQueue = async (req: Request, res: Response) => {
   try {
     const { page, limit } = req.query as { page?: string; limit?: string };

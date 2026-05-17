@@ -20,6 +20,13 @@ router.get(
 );
 
 router.get(
+  "/cases/:caseId/images",
+  authenticate,
+  authorize(Role.DOKTER_PATOLOGI),
+  reviewController.getCaseImages
+);
+
+router.get(
   "/cases/:caseId/images/:imageId",
   authenticate,
   authorize(Role.DOKTER_PATOLOGI, Role.OPERATOR_LAB),
