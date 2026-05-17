@@ -1,4 +1,18 @@
-import { Role, Sex, CaseStatus, QcStatus, Magnification, Staining, QcFailureReason, type Case } from '@prisma/client';
+import {
+  Role,
+  Sex,
+  CaseStatus,
+  QcStatus,
+  Magnification,
+  Staining,
+  QcFailureReason,
+  SeverityLevel,
+  HpfCountLevel,
+  FindingType,
+  ProcessingStatus,
+  type Case,
+  type Image,
+} from '@prisma/client';
 import { prisma } from '../src/config/prisma.js';
 import bcrypt from 'bcrypt';
 
@@ -316,14 +330,300 @@ async function main() {
     },
   ];
 
+  const createdImages: Image[] = [];
   for (const img of imagesData) {
     const existing = await prisma.image.findFirst({ where: { file_path: img.file_path } });
     if (!existing) {
-      await prisma.image.create({ data: img });
+      const created = await prisma.image.create({ data: img });
+      createdImages.push(created);
       console.log(`✅ Image dibuat: ${img.original_filename} (QC: ${img.qc_status})`);
     } else {
+      createdImages.push(existing);
       console.log(`ℹ️ Image ${img.original_filename} sudah ada, dilewati.`);
     }
+  }
+
+  // =========================================================================
+  // 5. SEEDING AI RESULTS + AI FINDINGS
+  // AiResult untuk semua image PASSED di case selain PENDING_UPLOAD.
+  // Variasi severity & finding type untuk testing UI patolog.
+  // =========================================================================
+
+  const aiResultsData = [
+    // Case[1] PENDING_VALIDATION (3 image)
+    {
+      filePath: 'histopath/case2/sample_40x_1.tiff',
+      total_necrosis_percent: 18.5,
+      global_severity: SeverityLevel.RENDAH,
+      total_granuloma_percent: 32.1,
+      total_datia_count: 2,
+      total_epiteloid_count: 8,
+      mean_confidence: 0.84,
+      processing_status: ProcessingStatus.COMPLETED,
+      findings: [
+        { finding_type: FindingType.NECROSIS, confidence_score: 0.82, area_percent: 18.5 },
+        { finding_type: FindingType.GRANULOMA, confidence_score: 0.88, area_percent: 32.1 },
+      ],
+    },
+    {
+      filePath: 'histopath/case2/sample_10x_1.tiff',
+      total_necrosis_percent: 8.0,
+      global_severity: SeverityLevel.SANGAT_RENDAH,
+      total_granuloma_percent: 12.5,
+      total_datia_count: 1,
+      total_epiteloid_count: 3,
+      mean_confidence: 0.79,
+      processing_status: ProcessingStatus.COMPLETED,
+      findings: [
+        { finding_type: FindingType.GRANULOMA, confidence_score: 0.79, area_percent: 12.5 },
+      ],
+    },
+    {
+      filePath: 'histopath/case2/sample_40x_2.tiff',
+      total_necrosis_percent: 42.0,
+      global_severity: SeverityLevel.TINGGI,
+      total_granuloma_percent: 55.0,
+      total_datia_count: 12,
+      total_epiteloid_count: 25,
+      mean_confidence: 0.91,
+      processing_status: ProcessingStatus.COMPLETED,
+      findings: [
+        { finding_type: FindingType.NECROSIS, confidence_score: 0.93, area_percent: 42.0 },
+        { finding_type: FindingType.DATIA_LANGHANS, confidence_score: 0.85, count: 12 },
+        { finding_type: FindingType.EPITHELIOID, confidence_score: 0.90, count: 25 },
+      ],
+    },
+    // Case[2] RESOLVED (2 image)
+    {
+      filePath: 'histopath/case3/sample_40x_1.tiff',
+      total_necrosis_percent: 25.0,
+      global_severity: SeverityLevel.SEDANG,
+      total_granuloma_percent: 40.0,
+      total_datia_count: 5,
+      total_epiteloid_count: 15,
+      mean_confidence: 0.87,
+      processing_status: ProcessingStatus.COMPLETED,
+      findings: [
+        { finding_type: FindingType.NECROSIS, confidence_score: 0.87, area_percent: 25.0 },
+        { finding_type: FindingType.GRANULOMA, confidence_score: 0.89, area_percent: 40.0 },
+      ],
+    },
+    {
+      filePath: 'histopath/case3/sample_40x_2.tiff',
+      total_necrosis_percent: 28.5,
+      global_severity: SeverityLevel.SEDANG,
+      total_granuloma_percent: 38.0,
+      total_datia_count: 6,
+      total_epiteloid_count: 18,
+      mean_confidence: 0.85,
+      processing_status: ProcessingStatus.COMPLETED,
+      findings: [
+        { finding_type: FindingType.NECROSIS, confidence_score: 0.83, area_percent: 28.5 },
+        { finding_type: FindingType.DATIA_LANGHANS, confidence_score: 0.88, count: 6 },
+      ],
+    },
+    // Case[3] AI_PROCESSING (2 image) — AiResult belum complete
+    {
+      filePath: 'histopath/case4/sample_40x_1.tiff',
+      processing_status: ProcessingStatus.PROCESSING,
+      findings: [],
+    },
+    {
+      filePath: 'histopath/case4/sample_10x_1.tiff',
+      processing_status: ProcessingStatus.PROCESSING,
+      findings: [],
+    },
+    // Case[4] RESOLVED (2 image)
+    {
+      filePath: 'histopath/case5/sample_40x_1.tiff',
+      total_necrosis_percent: 5.0,
+      global_severity: SeverityLevel.SANGAT_RENDAH,
+      total_granuloma_percent: 10.0,
+      total_datia_count: 0,
+      total_epiteloid_count: 2,
+      mean_confidence: 0.92,
+      processing_status: ProcessingStatus.COMPLETED,
+      findings: [
+        { finding_type: FindingType.GRANULOMA, confidence_score: 0.92, area_percent: 10.0 },
+      ],
+    },
+    {
+      filePath: 'histopath/case5/sample_40x_2.tiff',
+      total_necrosis_percent: 3.0,
+      global_severity: SeverityLevel.SANGAT_RENDAH,
+      total_granuloma_percent: 8.0,
+      total_datia_count: 0,
+      total_epiteloid_count: 1,
+      mean_confidence: 0.94,
+      processing_status: ProcessingStatus.COMPLETED,
+      findings: [],
+    },
+  ];
+
+  for (const data of aiResultsData) {
+    const image = createdImages.find((img) => img.file_path === data.filePath);
+    if (!image) {
+      console.log(`⚠️ Image tidak ditemukan untuk AiResult: ${data.filePath}`);
+      continue;
+    }
+
+    const existing = await prisma.aiResult.findUnique({ where: { image_id: image.id } });
+    if (existing) {
+      console.log(`ℹ️ AiResult untuk ${data.filePath} sudah ada, dilewati.`);
+      continue;
+    }
+
+    const { findings, filePath, ...resultFields } = data;
+    const aiResult = await prisma.aiResult.create({
+      data: {
+        ...resultFields,
+        image_id: image.id,
+        processed_at: resultFields.processing_status === ProcessingStatus.COMPLETED ? now : null,
+      },
+    });
+
+    for (const f of findings) {
+      await prisma.aiFinding.create({
+        data: {
+          ai_result_id: aiResult.id,
+          finding_type: f.finding_type,
+          confidence_score: f.confidence_score,
+          area_percent: 'area_percent' in f ? f.area_percent : null,
+          count: 'count' in f ? f.count : null,
+          segmentation_mask: { type: 'bbox', coords: [10, 10, 100, 100] },
+        },
+      });
+    }
+    console.log(`✅ AiResult + ${findings.length} finding dibuat untuk ${data.filePath}`);
+  }
+
+  // =========================================================================
+  // 6. SEEDING COMMENTS (DISKUSI PATOLOG)
+  // Beberapa contoh komentar diskusi di citra Case[1] PENDING_VALIDATION
+  // =========================================================================
+
+  const commentsData = [
+    {
+      filePath: 'histopath/case2/sample_40x_1.tiff',
+      content: 'Granuloma terlihat cukup jelas di area sentral, perlu konfirmasi necrosis.',
+      commentator_id: patolog.id,
+    },
+    {
+      filePath: 'histopath/case2/sample_40x_1.tiff',
+      content: 'Setuju, AI prediksi necrosis sepertinya overestimated. Mari kita validasi.',
+      commentator_id: patolog2.id,
+    },
+  ];
+
+  for (const c of commentsData) {
+    const image = createdImages.find((img) => img.file_path === c.filePath);
+    if (!image) continue;
+    const existing = await prisma.comment.findFirst({
+      where: { image_id: image.id, commentator_id: c.commentator_id, content: c.content },
+    });
+    if (existing) continue;
+    await prisma.comment.create({
+      data: { image_id: image.id, commentator_id: c.commentator_id, content: c.content },
+    });
+    console.log(`✅ Comment dibuat untuk ${c.filePath}`);
+  }
+
+  // =========================================================================
+  // 7. SEEDING VALIDATIONS
+  // Case[1] PENDING_VALIDATION: hanya 1 image divalidasi (sisanya pending)
+  // Case[2] & Case[4] RESOLVED: semua image divalidasi
+  // =========================================================================
+
+  const validationsData = [
+    // Case[1] — hanya 1 image divalidasi
+    {
+      filePath: 'histopath/case2/sample_40x_1.tiff',
+      validator_id: patolog.id,
+      global_severity: SeverityLevel.SEDANG,
+      necrosis_severity: SeverityLevel.RENDAH, // patolog koreksi dari AI yang predict RENDAH
+      granuloma_severity: SeverityLevel.SEDANG,
+      datia_count_level: HpfCountLevel.JARANG,
+      epithelioid_count_level: HpfCountLevel.JARANG,
+      validation_comment: 'AI overestimated necrosis, sebenarnya lebih rendah.',
+    },
+    // Case[2] — semua 2 image divalidasi
+    {
+      filePath: 'histopath/case3/sample_40x_1.tiff',
+      validator_id: patolog.id,
+      global_severity: SeverityLevel.SEDANG,
+      necrosis_severity: SeverityLevel.SEDANG,
+      granuloma_severity: SeverityLevel.SEDANG,
+      datia_count_level: HpfCountLevel.JARANG,
+      epithelioid_count_level: HpfCountLevel.CUKUP_BANYAK,
+    },
+    {
+      filePath: 'histopath/case3/sample_40x_2.tiff',
+      validator_id: patolog.id,
+      global_severity: SeverityLevel.SEDANG,
+      necrosis_severity: SeverityLevel.SEDANG,
+      granuloma_severity: SeverityLevel.SEDANG,
+      datia_count_level: HpfCountLevel.JARANG,
+      epithelioid_count_level: HpfCountLevel.CUKUP_BANYAK,
+    },
+    // Case[4] — semua 2 image divalidasi
+    {
+      filePath: 'histopath/case5/sample_40x_1.tiff',
+      validator_id: patolog2.id,
+      global_severity: SeverityLevel.SANGAT_RENDAH,
+      necrosis_severity: SeverityLevel.SANGAT_RENDAH,
+      granuloma_severity: SeverityLevel.SANGAT_RENDAH,
+      datia_count_level: HpfCountLevel.TIDAK_ADA,
+      epithelioid_count_level: HpfCountLevel.TIDAK_ADA,
+      validation_comment: 'Pasien sembuh, tidak ada tanda aktif.',
+    },
+    {
+      filePath: 'histopath/case5/sample_40x_2.tiff',
+      validator_id: patolog2.id,
+      global_severity: SeverityLevel.SANGAT_RENDAH,
+      necrosis_severity: SeverityLevel.SANGAT_RENDAH,
+      granuloma_severity: SeverityLevel.SANGAT_RENDAH,
+      datia_count_level: HpfCountLevel.TIDAK_ADA,
+      epithelioid_count_level: HpfCountLevel.TIDAK_ADA,
+    },
+  ];
+
+  for (const v of validationsData) {
+    const image = createdImages.find((img) => img.file_path === v.filePath);
+    if (!image) continue;
+    const existing = await prisma.validation.findUnique({ where: { image_id: image.id } });
+    if (existing) continue;
+    const { filePath, ...data } = v;
+    await prisma.validation.create({ data: { ...data, image_id: image.id } });
+    console.log(`✅ Validation dibuat untuk ${filePath}`);
+  }
+
+  // =========================================================================
+  // 8. SEEDING CONSENSUS
+  // Untuk case RESOLVED, buat 1 consensus akhir
+  // =========================================================================
+
+  const consensusData = [
+    {
+      case_id: createdCases[2].id, // Case[2] RESOLVED
+      commentator_id: patolog.id,
+      severity: SeverityLevel.SEDANG,
+      comment: 'TBC aktif tingkat sedang, lanjutkan OAT lini pertama.',
+    },
+    {
+      case_id: createdCases[4].id, // Case[4] RESOLVED
+      commentator_id: patolog2.id,
+      severity: SeverityLevel.SANGAT_RENDAH,
+      comment: 'Tidak ada tanda TBC aktif. Pasien dinyatakan sembuh.',
+    },
+  ];
+
+  for (const c of consensusData) {
+    const existing = await prisma.consensus.findFirst({
+      where: { case_id: c.case_id, commentator_id: c.commentator_id },
+    });
+    if (existing) continue;
+    await prisma.consensus.create({ data: c });
+    console.log(`✅ Consensus dibuat untuk case ${c.case_id}`);
   }
 
   console.log(`\n🎉 [SEEDING SELESAI] Database siap digunakan untuk pengujian.`);
