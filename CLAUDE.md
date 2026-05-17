@@ -190,9 +190,10 @@ count? (Int), segmentation_mask (JsonB)
 #### `Comment`
 ```prisma
 id, image_id (FK), commentator_id (FK → User),
-content (Text), submitted_at
+content (Text), is_deleted (Boolean = false), submitted_at
 ```
 - `commentator_id` (bukan `author_id`).
+- Soft-delete via `is_deleted`. Konten yang dihapus di-mask oleh `maskDeletedContent()` di `comment.service.ts` sebelum dikirim ke client.
 - Untuk diskusi terbuka antar patolog pada tingkat citra (banyak komentar per citra).
 - Validasi terstruktur ada di model `Validation` (terpisah).
 
@@ -215,11 +216,12 @@ validation_comment? (Text), submitted_at
 
 #### `Consensus`
 ```prisma
-id, case_id (FK), commentator_id (FK → User),
+id, case_id (FK, unique), commentator_id (FK → User),
 severity (SeverityLevel), comment? (Text), submitted_at
 ```
 - `commentator_id` (bukan `created_by`).
-- Bisa banyak Consensus per kasus (multi-putaran / multi-patolog).
+- **1:1 dengan Case** (`case_id` unique). Submit ulang menggunakan upsert — consensus bisa direvisi kapan saja.
+- Membuat consensus pertama kali pada kasus `PENDING_VALIDATION` secara atomik mengubah `Case.status → RESOLVED` dan mengisi `completed_at`.
 
 #### `Report`
 ```prisma
@@ -365,30 +367,35 @@ POST /api/cases/:id/submit
 >
 > **Upload strategy**: Client upload langsung ke Supabase Storage via presigned URL untuk menghindari bottleneck bandwidth di server backend.
 
-### 5.4 Dashboard Patolog (BELUM DIIMPLEMENTASI)
+### 5.4 Dashboard Patolog ✅
 
 > Citra masuk ke antrian patolog setelah operator menekan **Submit** pada kasus (Case.status → `PENDING_VALIDATION`). Sebelum itu, citra tidak terlihat di dashboard patolog.
 
-**Alur Validasi per Citra:**
+**Alur lengkap:**
 
-1. Patolog buka citra dari antrian → lihat prediksi AI (`global_severity`, `total_necrosis_percent`, `total_granuloma_percent`, `total_datia_count`, `total_epiteloid_count`)
-2. Frontend pre-fill form validasi dengan **bracket** hasil mapping dari prediksi AI:
-   - Persentase (necrosis, granuloma) → `SeverityLevel` (SANGAT_RENDAH/RENDAH/SEDANG/TINGGI/SANGAT_TINGGI)
-   - Count (datia, epithelioid) → `HpfCountLevel` (TIDAK_ADA/JARANG/CUKUP_BANYAK/SANGAT_BANYAK)
-3. Patolog adjust bracket jika tidak setuju dengan AI, opsional tambah catatan di `validation_comment` (terutama jika ada error AI signifikan)
-4. Submit validation → `POST /api/images/:id/validate`
-5. Diulang untuk setiap citra di kasus
-6. Setelah semua citra divalidasi → patolog buat consensus untuk kasus
+1. Patolog buka antrian → `GET /api/review/queue` — daftar kasus `PENDING_VALIDATION` beserta progress validasi (`images_validated / images_total`)
+2. Klik "view images" pada satu kasus → `GET /api/review/cases/:caseId/images` — daftar citra QC-passed dengan kolom: nama file, `is_validated`, `global_severity` (dari AI jika belum divalidasi, dari Validation jika sudah), `is_ai_uncertain`, `validated_by`
+3. Klik satu citra → `GET /api/review/cases/:caseId/images/:imageId` — detail lengkap: foto (signed URL), AiResult + AiFinding, validasi existing, thread komentar
+4. Isi form validasi → `POST /api/images/:id/validate` — upsert, bisa direvisi
+5. Ulangi langkah 3–4 untuk semua citra
+6. Setelah semua citra tervalidasi → `POST /api/cases/:id/consensus` — jika masih ada citra belum divalidasi, tolak 400. Berhasil → Case otomatis `RESOLVED`
+7. Kasus pindah ke `GET /api/review/resolved` — daftar kasus selesai beserta nama patolog dan severity consensus
 
 **Endpoint:**
 
-| Endpoint                           | Method | Deskripsi                                                                |
-|------------------------------------|--------|--------------------------------------------------------------------------|
-| `GET /api/review/queue`            | GET    | List kasus `PENDING_VALIDATION` beserta citra `PASSED`-nya               |
-| `GET /api/cases/:id/images/:imgId` | GET    | Detail citra + AiResult + AiFinding untuk satu citra                     |
-| `POST /api/images/:id/comments`    | POST   | Tambah Comment diskusi pada citra (free-text, multi per citra)           |
-| `POST /api/images/:id/validate`    | POST   | Submit Validation final per citra (5 field bracket + komentar opsional)  |
-| `POST /api/cases/:id/consensus`    | POST   | Buat Consensus akhir untuk kasus (final severity + komentar)             |
+| Endpoint                                    | Method | Akses                             | Deskripsi |
+|---------------------------------------------|--------|-----------------------------------|-----------|
+| `GET /api/review/queue`                     | GET    | `DOKTER_PATOLOGI`                 | Antrian kasus `PENDING_VALIDATION` |
+| `GET /api/review/resolved`                  | GET    | `DOKTER_PATOLOGI`                 | Daftar kasus selesai (`RESOLVED`) |
+| `GET /api/review/cases/:caseId/images`      | GET    | `DOKTER_PATOLOGI`                 | Daftar citra satu kasus + status validasi |
+| `GET /api/review/cases/:caseId/images/:id`  | GET    | `DOKTER_PATOLOGI`, `OPERATOR_LAB` | Detail citra (foto, AI, validasi, komentar) |
+| `POST /api/images/:id/validate`             | POST   | `DOKTER_PATOLOGI`                 | Submit/revisi Validation per citra |
+| `POST /api/images/:id/comments`             | POST   | `DOKTER_PATOLOGI`, `OPERATOR_LAB` | Tambah komentar diskusi |
+| `POST /api/cases/:id/consensus`             | POST   | `DOKTER_PATOLOGI`                 | Buat/revisi Consensus → Case `RESOLVED` |
+
+**Logika `global_severity` di daftar citra:**
+- Belum divalidasi → ambil dari `ai_result.global_severity`
+- Sudah divalidasi → ambil dari `validation.global_severity` (override AI)
 
 **Payload `POST /api/images/:id/validate`:**
 ```json
@@ -398,13 +405,9 @@ POST /api/cases/:id/submit
   "granuloma_severity": "TINGGI",
   "datia_count_level": "JARANG",
   "epithelioid_count_level": "CUKUP_BANYAK",
-  "validation_comment": "AI overestimated necrosis area, terlihat lebih ke RENDAH"
+  "validation_comment": "AI overestimated necrosis area"
 }
 ```
-
-> **Catatan skema**: `Validation` adalah model mandiri (terpisah dari `Comment`) dengan unique constraint pada `image_id` — 1 validasi final per citra. Comment tetap ada untuk diskusi terbuka antar patolog.
->
-> **Training data tracking**: Error prediksi AI dihitung implisit dengan JOIN antara `AiResult` (nilai eksak) dan `Validation` (bracket patolog). Patolog juga bisa tulis catatan kualitatif spesifik di `validation_comment` untuk error signifikan.
 
 ### 5.5 Generator Laporan Klinis (BELUM DIIMPLEMENTASI)
 
@@ -425,6 +428,12 @@ npm run build
 
 # Jalankan build hasil kompilasi
 npm start
+
+# Jalankan semua test — wajib dijalankan setelah setiap fitur selesai
+npm run test
+
+# Coverage report
+npm run test:coverage
 
 # Jalankan database seeding
 npm run seed
@@ -511,19 +520,9 @@ Semua response API harus konsisten:
 - Pesan error untuk user: **Bahasa Indonesia**.
 - Nama field DB (Prisma): **snake_case**.
 
-### Auth Guard (belum ada, perlu dibuat)
-Middleware `authenticate.middleware.ts` yang perlu dibuat:
-```typescript
-// Verifikasi JWT dari header Authorization: Bearer <token>
-// Tambahkan user payload ke req.user
-// Lempar AppError 401 jika token invalid/expired
-```
+### Auth Guard ✅
 
-Middleware `authorize(...roles)` untuk role-based access:
-```typescript
-// Cek req.user.role ada di dalam allowed roles
-// Lempar AppError 403 jika tidak punya akses
-```
+`authenticate` middleware memverifikasi JWT dari header `Authorization: Bearer <token>`, lalu menempel payload ke `req.user`. `authorize(...roles)` dirantai setelahnya untuk membatasi akses per role. Keduanya ada di `middlewares/authenticate.middleware.ts`.
 
 ### Aturan Akses Institusi (OPERATOR_LAB)
 
@@ -542,43 +541,21 @@ await assertSameInstitution(operatorId, kasus.created_by);
 
 ---
 
-## 9. Yang Belum Ada (Backlog Infrastruktur)
+## 9. Yang Belum Ada (Backlog)
 
-**Middleware & Utilitas:**
-- [ ] Auth guard middleware (`authenticate` + `authorize`)
-- [ ] Pagination utility (reusable helper untuk Prisma queries)
+**Infrastruktur:**
 - [ ] AuditLog writer utility (dipanggil di setiap service yang mutasi data)
 - [ ] `.env.example` file
 - [ ] Rate limiting middleware
 - [ ] Request logging (morgan atau custom)
 
-**Domain: Pasien & Kasus (OPERATOR_LAB only)**
-- [ ] `GET /api/patients` — list + filter + pagination
-- [ ] `POST /api/patients` — daftarkan pasien baru
-- [ ] `GET /api/patients/:id` — detail pasien + riwayat kasus
-- [ ] `GET /api/cases` — list kasus + filter + pagination
-- [ ] `POST /api/cases` — buat kasus baru
-- [ ] `GET /api/cases/:id` — detail kasus + daftar citra + QC status
-
-**Domain: Upload Citra (OPERATOR_LAB only)**
-- [ ] `POST /api/cases/:id/images/presigned-urls` — batch presigned URL + buat Image records
-- [ ] `POST /api/cases/:id/images/confirm` — konfirmasi upload + trigger QC (mock)
-- [ ] `GET  /api/cases/:id/images` — tabel citra (nama, id, magnification, qc_status, view_url)
-- [ ] `DELETE /api/images/:id` — hapus citra manual (DB + Supabase Storage)
-- [ ] `POST /api/cases/:id/submit` — submit semua citra ke antrian patolog
-- [ ] Supabase Storage integration (presigned URL generator + signed view URL + delete)
-
-**Domain: Review Patolog (DOKTER_PATOLOGI only)**
-- [ ] `GET /api/review/queue` — antrian kasus `PENDING_VALIDATION`
-- [ ] `GET /api/cases/:id/images/:imgId` — detail citra + AiResult + AiFinding (untuk pre-fill form validasi)
-- [ ] `POST /api/images/:id/validate` — submit Validation per citra (5 field bracket + komentar)
-- [ ] `POST /api/images/:id/comments` — tambah Comment
-- [ ] `POST /api/cases/:id/consensus` — buat Consensus
-
-**Domain: Laporan Klinis (DOKTER_PATOLOGI + DOKTER_KLINIS)**
+**Domain: Laporan Klinis (DOKTER_PATOLOGI)**
 - [ ] `POST /api/reports` — generate laporan dari Case + AiResult + Consensus
 - [ ] `GET  /api/reports/:id` — ambil laporan (JSON)
 - [ ] `PATCH /api/reports/:id/finalize` — finalisasi + tanda tangan digital
 
 **Domain: Stats**
 - [ ] `GET /api/dashboard/stats` — ringkasan harian untuk operator
+
+**Integrasi AI**
+- [ ] Koneksi ke AI model untuk inferensi AiResult + AiFinding (saat ini data AI diisi via seeding)
