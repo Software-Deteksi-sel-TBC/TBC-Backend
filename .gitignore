@@ -13,3 +13,4 @@ src/**/*.d.ts.map
 # Prisma generated files
 /src/generated/prisma
 .claude/
+.vscode/*
