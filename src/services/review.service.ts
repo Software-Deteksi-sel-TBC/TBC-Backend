@@ -3,7 +3,7 @@ import { prisma } from "../config/prisma.js";
 import { AppError } from "../errors/app.error.js";
 import { assertSameInstitution } from "../utils/access.utils.js";
 import { getPaginationParams } from "../utils/pagination.utils.js";
-import { createSignedViewUrl } from "../utils/supabase-storage.utils.js";
+import { storage } from "./storage/index.js";
 import { maskDeletedContent } from "./comment.service.js";
 
 export const getReviewQueue = async (patologId: string, page?: string, limit?: string) => {
@@ -174,7 +174,7 @@ export const getImageDetailForReview = async (
     throw new AppError("Kasus belum siap untuk direview", 403);
   }
 
-  const view_url = image.file_path ? await createSignedViewUrl(image.file_path) : null;
+  const view_url = image.file_path ? await storage.createSignedViewUrl(image.file_path) : null;
 
   return {
     ...image,

@@ -1,0 +1,6 @@
+export interface StorageService {
+  buildFilePath(caseId: string, imageId: string, originalFilename: string): string;
+  createPresignedUploadUrl(filePath: string, expiresInSeconds?: number): Promise<string>;
+  createSignedViewUrl(filePath: string, expiresInSeconds?: number): Promise<string>;
+  deleteFile(filePath: string): Promise<void>;
+}
