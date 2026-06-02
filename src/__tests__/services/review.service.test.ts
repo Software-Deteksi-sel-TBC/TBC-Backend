@@ -13,8 +13,10 @@ vi.mock('../../utils/access.utils.js', () => ({
   assertSameInstitution: vi.fn(),
 }));
 
-vi.mock('../../utils/supabase-storage.utils.js', () => ({
-  createSignedViewUrl: vi.fn(),
+vi.mock('../../services/storage/index.js', () => ({
+  storage: {
+    createSignedViewUrl: vi.fn(),
+  }
 }));
 
 vi.mock('../../utils/pagination.utils.js', () => ({
@@ -24,7 +26,7 @@ vi.mock('../../utils/pagination.utils.js', () => ({
 import { getReviewQueue, getResolvedQueue, getCaseImages, getImageDetailForReview } from '../../services/review.service.js';
 import { prisma } from '../../config/prisma.js';
 import { assertSameInstitution } from '../../utils/access.utils.js';
-import { createSignedViewUrl } from '../../utils/supabase-storage.utils.js';
+import { storage } from '../../services/storage/index.js';
 import { AppError } from '../../errors/app.error.js';
 
 const mockUserFindUnique = vi.mocked(prisma.user.findUnique);
@@ -33,7 +35,7 @@ const mockImageFindUnique = vi.mocked(prisma.image.findUnique);
 const mockImageFindMany = vi.mocked(prisma.image.findMany);
 const mockTransaction = vi.mocked(prisma.$transaction);
 const mockAssertSameInstitution = vi.mocked(assertSameInstitution);
-const mockCreateSignedViewUrl = vi.mocked(createSignedViewUrl);
+const mockCreateSignedViewUrl = vi.mocked(storage.createSignedViewUrl);
 
 const mockCase = {
   id: 'case-1',
