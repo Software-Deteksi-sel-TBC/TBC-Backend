@@ -8,12 +8,13 @@ vi.mock('../../config/prisma.js', () => ({
       create: vi.fn(),
       count: vi.fn(),
       findMany: vi.fn(),
+      update: vi.fn(),
     },
     $transaction: vi.fn(),
   },
 }));
 
-import { createPatient, listPatients, getPatientById } from '../../services/patient.service.js';
+import { createPatient, listPatients, getPatientById, updatePatient } from '../../services/patient.service.js';
 import { prisma } from '../../config/prisma.js';
 
 const mockPatient = {
@@ -25,6 +26,7 @@ const mockPatient = {
   age: 45,
   created_by: 'operator-123',
   created_at: new Date(),
+  updated_at: new Date(),
 };
 
 describe('createPatient', () => {
@@ -86,5 +88,41 @@ describe('listPatients', () => {
     const result = await listPatients({ page: '2', limit: '5' });
     expect(result.meta.page).toBe(2);
     expect(result.meta.limit).toBe(5);
+  });
+});
+
+describe('updatePatient', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  test('throws 404 jika patient tidak ditemukan', async () => {
+    vi.mocked(prisma.patient.findUnique).mockResolvedValue(null);
+    await expect(updatePatient('nonexistent-id', { name: 'Budi' })).rejects.toThrow('Pasien tidak ditemukan');
+  });
+
+  test('throws 409 jika NIK sudah terdaftar pada pasien lain', async () => {
+    vi.mocked(prisma.patient.findUnique)
+      .mockResolvedValueOnce(mockPatient as any) 
+      .mockResolvedValueOnce({ id: 'other-id' } as any); 
+    await expect(
+      updatePatient('patient-123', { no_induk: '1111222233334444' })
+    ).rejects.toThrow('NIK sudah terdaftar pada pasien lain');
+  });
+
+  test('throws 409 jika BPJS sudah terdaftar pada pasien lain', async () => {
+    vi.mocked(prisma.patient.findUnique)
+      .mockResolvedValueOnce(mockPatient as any) 
+      .mockResolvedValueOnce({ id: 'other-id' } as any); 
+      
+    await expect(
+      updatePatient('patient-123', { bpjs_number: '1111222233334' })
+    ).rejects.toThrow('Nomor BPJS sudah terdaftar pada pasien lain');
+  });
+
+  test('updates patient jika data valid', async () => {
+    vi.mocked(prisma.patient.findUnique).mockResolvedValueOnce(mockPatient as any);
+    vi.mocked(prisma.patient.update).mockResolvedValue({ ...mockPatient, name: 'Budi' } as any);
+    
+    const result = await updatePatient('patient-123', { name: 'Budi' });
+    expect(result.name).toBe('Budi');
   });
 });

@@ -1,27 +1,9 @@
 import { Role } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../errors/app.error.js";
-import {
-  buildFilePath,
-  createPresignedUploadUrl,
-  createSignedViewUrl,
-  deleteFile,
-} from "../utils/supabase-storage.utils.js";
+import { assertSameInstitution } from "../utils/access.utils.js";
+import { storage } from "./storage/index.js";
 import { type RequestPresignedUrlsInput, type ConfirmUploadInput } from "../validations/image.validation.js";
-
-const assertSameInstitution = async (operatorId: string, caseCreatorId: string) => {
-  const [operator, creator] = await Promise.all([
-    prisma.user.findUnique({ where: { id: operatorId }, select: { institution: true } }),
-    prisma.user.findUnique({ where: { id: caseCreatorId }, select: { institution: true } }),
-  ]);
-
-  if (!operator?.institution || !creator?.institution) {
-    throw new AppError("Akses ditolak: institusi tidak terdaftar", 403);
-  }
-  if (operator.institution !== creator.institution) {
-    throw new AppError("Akses ditolak: kasus milik institusi lain", 403);
-  }
-};
 
 const STALE_PENDING_TTL_MS = 2 * 60 * 60 * 1000; // 2 jam
 
@@ -37,7 +19,7 @@ const cleanupStalePendingImages = async (caseId: string) => {
 
   if (staleImages.length === 0) return;
 
-  await Promise.allSettled(staleImages.map((img) => deleteFile(img.file_path)));
+  await Promise.allSettled(staleImages.map((img) => storage.deleteFile(img.file_path)));
   await prisma.image.deleteMany({
     where: { id: { in: staleImages.map((img) => img.id) } },
   });
@@ -60,7 +42,7 @@ export const requestPresignedUrls = async (
   const results = await Promise.all(
     images.map(async (item) => {
       const imageId = crypto.randomUUID();
-      const filePath = buildFilePath(caseId, imageId, item.original_filename);
+      const filePath = storage.buildFilePath(caseId, imageId, item.original_filename);
 
       const [image, presignedUrl] = await Promise.all([
         prisma.image.create({
@@ -76,7 +58,7 @@ export const requestPresignedUrls = async (
             staining: item.staining,
           },
         }),
-        createPresignedUploadUrl(filePath),
+        storage.createPresignedUploadUrl(filePath),
       ]);
 
       return { image_id: image.id, presigned_url: presignedUrl, file_path: filePath };
@@ -144,7 +126,7 @@ export const listImagesForCase = async (
       magnification: image.magnification,
       qc_status: image.qc_status,
       qc_failure_reason: image.qc_failure_reason,
-      view_url: image.file_path ? await createSignedViewUrl(image.file_path) : null,
+      view_url: image.file_path ? await storage.createSignedViewUrl(image.file_path) : null,
     }))
   );
 };
@@ -157,7 +139,7 @@ export const deleteImage = async (imageId: string, operatorId: string) => {
   if (!image) throw new AppError("Gambar tidak ditemukan", 404);
   await assertSameInstitution(operatorId, image.case.created_by);
 
-  await deleteFile(image.file_path);
+  await storage.deleteFile(image.file_path);
   await prisma.image.delete({ where: { id: imageId } });
 };
 

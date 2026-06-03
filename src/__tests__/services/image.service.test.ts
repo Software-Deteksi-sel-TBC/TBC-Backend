@@ -21,13 +21,15 @@ vi.mock('../../config/prisma.js', () => ({
   },
 }));
 
-vi.mock('../../utils/supabase-storage.utils.js', () => ({
-  buildFilePath: vi.fn((caseId: string, imageId: string, filename: string) =>
-    `cases/${caseId}/${imageId}/${filename}`
-  ),
-  createPresignedUploadUrl: vi.fn(),
-  createSignedViewUrl: vi.fn(),
-  deleteFile: vi.fn(),
+vi.mock('../../services/storage/index.js', () => ({
+  storage: {
+    createPresignedUploadUrl: vi.fn(),
+    createSignedViewUrl: vi.fn(),
+    deleteFile: vi.fn(),
+    buildFilePath: vi.fn((caseId: string, imageId: string, filename: string) =>
+      `cases/${caseId}/${imageId}/${filename}`
+    ),
+  }
 }));
 
 import {
@@ -38,11 +40,7 @@ import {
   submitCase,
 } from '../../services/image.service.js';
 import { prisma } from '../../config/prisma.js';
-import {
-  createPresignedUploadUrl,
-  createSignedViewUrl,
-  deleteFile,
-} from '../../utils/supabase-storage.utils.js';
+import { storage } from '../../services/storage/index.js';
 
 const OPERATOR_ID = 'operator-1';
 const CREATOR_ID = 'creator-1';
@@ -127,7 +125,7 @@ describe('requestPresignedUrls', () => {
     vi.mocked(prisma.image.create).mockImplementation(
       ({ data }: any) => Promise.resolve({ id: data.id, file_path: data.file_path }) as any
     );
-    vi.mocked(createPresignedUploadUrl).mockResolvedValue('https://presigned.example.com/upload');
+    vi.mocked(storage.createPresignedUploadUrl).mockResolvedValue('https://presigned.example.com/upload');
 
     const result = await requestPresignedUrls(CASE_ID, OPERATOR_ID, [mockImageInput]);
 
@@ -148,11 +146,11 @@ describe('requestPresignedUrls', () => {
     vi.mocked(prisma.image.create).mockImplementation(
       ({ data }: any) => Promise.resolve({ id: data.id, file_path: data.file_path }) as any
     );
-    vi.mocked(createPresignedUploadUrl).mockResolvedValue('https://presigned.example.com/upload');
+    vi.mocked(storage.createPresignedUploadUrl).mockResolvedValue('https://presigned.example.com/upload');
 
     await requestPresignedUrls(CASE_ID, OPERATOR_ID, [mockImageInput]);
 
-    expect(deleteFile).toHaveBeenCalledWith('cases/case-1/stale-1/old.jpg');
+    expect(storage.deleteFile).toHaveBeenCalledWith('cases/case-1/stale-1/old.jpg');
     expect(prisma.image.deleteMany).toHaveBeenCalled();
   });
 });
@@ -265,12 +263,12 @@ describe('listImagesForCase', () => {
         file_path: 'cases/case-1/img-1/sample.jpg',
       },
     ] as any);
-    vi.mocked(createSignedViewUrl).mockResolvedValue('https://signed.example.com/view');
+    vi.mocked(storage.createSignedViewUrl).mockResolvedValue('https://signed.example.com/view');
 
     const result = await listImagesForCase(CASE_ID, OPERATOR_ID, Role.OPERATOR_LAB);
 
     expect(result[0]!.view_url).toBe('https://signed.example.com/view');
-    expect(createSignedViewUrl).toHaveBeenCalledWith('cases/case-1/img-1/sample.jpg');
+    expect(storage.createSignedViewUrl).toHaveBeenCalledWith('cases/case-1/img-1/sample.jpg');
   });
 
   test('returns view_url null jika file_path kosong', async () => {
@@ -289,7 +287,7 @@ describe('listImagesForCase', () => {
 
     const result = await listImagesForCase(CASE_ID, OPERATOR_ID, Role.OPERATOR_LAB);
     expect(result[0]!.view_url).toBeNull();
-    expect(createSignedViewUrl).not.toHaveBeenCalled();
+    expect(storage.createSignedViewUrl).not.toHaveBeenCalled();
   });
 });
 
@@ -316,12 +314,12 @@ describe('deleteImage', () => {
   test('memanggil deleteFile dan prisma.image.delete saat sukses', async () => {
     vi.mocked(prisma.image.findUnique).mockResolvedValue(mockImageWithCase as any);
     mockSameInstitution();
-    vi.mocked(deleteFile).mockResolvedValue(undefined);
+    vi.mocked(storage.deleteFile).mockResolvedValue(undefined);
     vi.mocked(prisma.image.delete).mockResolvedValue({} as any);
 
     await deleteImage('img-1', OPERATOR_ID);
 
-    expect(deleteFile).toHaveBeenCalledWith('cases/case-1/img-1/sample.jpg');
+    expect(storage.deleteFile).toHaveBeenCalledWith('cases/case-1/img-1/sample.jpg');
     expect(prisma.image.delete).toHaveBeenCalledWith({ where: { id: 'img-1' } });
   });
 });
