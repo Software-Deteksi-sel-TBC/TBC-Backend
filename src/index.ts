@@ -25,7 +25,7 @@ app.use(cors(corsOptions));
 app.use('/api/auth', authRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/cases', caseRoutes);
-app.use('/api/cases', caseImageRouter);
+app.use('/api/cases/:id', caseImageRouter); 
 app.use('/api/images', standaloneImageRouter);
 app.use('/api/review', reviewRoutes);
 app.use('/api/images', commentRoutes);
