@@ -96,7 +96,7 @@ describe('updatePatient', () => {
 
   test('throws 404 jika patient tidak ditemukan', async () => {
     vi.mocked(prisma.patient.findUnique).mockResolvedValue(null);
-    await expect(updatePatient('nonexistent-id', { name: 'Budi' })).rejects.toThrow('Pasien tidak ditemukan');
+    await expect(updatePatient('nonexistent-id', { name: 'Budi' }, 'operator-1')).rejects.toThrow('Pasien tidak ditemukan');
   });
 
   test('throws 409 jika NIK sudah terdaftar pada pasien lain', async () => {
@@ -104,7 +104,7 @@ describe('updatePatient', () => {
       .mockResolvedValueOnce(mockPatient as any) 
       .mockResolvedValueOnce({ id: 'other-id' } as any); 
     await expect(
-      updatePatient('patient-123', { no_induk: '1111222233334444' })
+      updatePatient('patient-123', { no_induk: '1111222233334444' }, 'operator-1')
     ).rejects.toThrow('NIK sudah terdaftar pada pasien lain');
   });
 
@@ -114,7 +114,7 @@ describe('updatePatient', () => {
       .mockResolvedValueOnce({ id: 'other-id' } as any); 
       
     await expect(
-      updatePatient('patient-123', { bpjs_number: '1111222233334' })
+      updatePatient('patient-123', { bpjs_number: '1111222233334' }, 'operator-1')
     ).rejects.toThrow('Nomor BPJS sudah terdaftar pada pasien lain');
   });
 
@@ -122,7 +122,7 @@ describe('updatePatient', () => {
     vi.mocked(prisma.patient.findUnique).mockResolvedValueOnce(mockPatient as any);
     vi.mocked(prisma.patient.update).mockResolvedValue({ ...mockPatient, name: 'Budi' } as any);
     
-    const result = await updatePatient('patient-123', { name: 'Budi' });
+    const result = await updatePatient('patient-123', { name: 'Budi' }, 'operator-1');
     expect(result.name).toBe('Budi');
   });
 });

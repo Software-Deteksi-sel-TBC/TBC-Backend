@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../errors/app.error.js";
 import { assertSameInstitution } from "../utils/access.utils.js";
+import { writeAuditLog } from "../utils/audit.utils.js";
 import { storage } from "./storage/index.js";
 import { type RequestPresignedUrlsInput, type ConfirmUploadInput } from "../validations/image.validation.js";
 
@@ -92,10 +93,15 @@ export const confirmUpload = async (caseId: string, operatorId: string, data: Co
     data: { qc_status: "PASSED", checked_at: new Date() },
   });
 
-  return prisma.image.findMany({
+  const confirmed = await prisma.image.findMany({
     where: { id: { in: data.image_ids } },
     orderBy: { uploaded_at: "asc" },
   });
+
+  await writeAuditLog(operatorId, "CONFIRM_IMAGES", "Image", caseId, {
+    image_ids: pendingIds,
+  });
+  return confirmed;
 };
 
 export const listImagesForCase = async (
@@ -141,6 +147,7 @@ export const deleteImage = async (imageId: string, operatorId: string) => {
 
   await storage.deleteFile(image.file_path);
   await prisma.image.delete({ where: { id: imageId } });
+  await writeAuditLog(operatorId, "DELETE_IMAGE", "Image", imageId);
 };
 
 export const submitCase = async (caseId: string, operatorId: string) => {
@@ -163,8 +170,11 @@ export const submitCase = async (caseId: string, operatorId: string) => {
     throw new AppError("Semua gambar harus lulus QC sebelum submit", 400);
   }
 
-  return prisma.case.update({
+  const updated = await prisma.case.update({
     where: { id: caseId },
     data: { status: "PENDING_VALIDATION" },
   });
+
+  await writeAuditLog(operatorId, "SUBMIT_CASE", "Case", caseId);
+  return updated;
 };

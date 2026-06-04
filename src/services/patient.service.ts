@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../errors/app.error.js";
 import { getPaginationParams } from "../utils/pagination.utils.js";
+import { writeAuditLog } from "../utils/audit.utils.js";
 import { type CreatePatientInput, type ListPatientInput, type UpdatePatientInput } from "../validations/patient.validation.js";
 
 export const createPatient = async (data: CreatePatientInput, operatorId: string) => {
@@ -12,13 +13,16 @@ export const createPatient = async (data: CreatePatientInput, operatorId: string
     if (existingByBpjs) throw new AppError("Nomor BPJS sudah terdaftar", 409);
   }
 
-  return prisma.patient.create({
+  const patient = await prisma.patient.create({
     data: {
       ...data,
       bpjs_number: data.bpjs_number ?? null,
       created_by: operatorId,
     },
   });
+
+  await writeAuditLog(operatorId, "CREATE_PATIENT", "Patient", patient.id);
+  return patient;
 };
 
 export const listPatients = async (query: ListPatientInput) => {
@@ -52,7 +56,7 @@ export const getPatientById = async (id: string) => {
   return patient;
 };
 
-export const updatePatient = async (id: string, data: UpdatePatientInput) => {
+export const updatePatient = async (id: string, data: UpdatePatientInput, operatorId: string) => {
   const patient = await prisma.patient.findUnique({ where: { id } });
   if (!patient) throw new AppError("Pasien tidak ditemukan", 404);
 
@@ -74,8 +78,11 @@ export const updatePatient = async (id: string, data: UpdatePatientInput) => {
     ...(data.age !== undefined && { age: data.age }),
   };
 
-  return prisma.patient.update({
+  const updated = await prisma.patient.update({
     where: { id },
     data: updateData,
   });
+
+  await writeAuditLog(operatorId, "UPDATE_PATIENT", "Patient", id);
+  return updated;
 };

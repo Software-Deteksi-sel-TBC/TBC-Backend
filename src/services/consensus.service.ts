@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../errors/app.error.js";
 import { assertSameInstitution } from "../utils/access.utils.js";
+import { writeAuditLog } from "../utils/audit.utils.js";
 import { type CreateConsensusInput } from "../validations/consensus.validation.js";
 
 export const submitConsensus = async (
@@ -64,5 +65,8 @@ export const submitConsensus = async (
       : []),
   ]);
 
+  await writeAuditLog(commentatorId, "SUBMIT_CONSENSUS", "Consensus", consensus.id, {
+    case_id: caseId,
+  });
   return consensus;
 };

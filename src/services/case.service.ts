@@ -1,19 +1,23 @@
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../errors/app.error.js";
 import { getPaginationParams } from "../utils/pagination.utils.js";
+import { writeAuditLog } from "../utils/audit.utils.js";
 import { type CreateCaseInput, type ListCaseInput } from "../validations/case.validation.js";
 
 export const createCase = async (data: CreateCaseInput, operatorId: string) => {
   const patient = await prisma.patient.findUnique({ where: { id: data.patient_id } });
   if (!patient) throw new AppError("Pasien tidak ditemukan", 404);
 
-  return prisma.case.create({
+  const kasus = await prisma.case.create({
     data: {
       patient_id: data.patient_id,
       created_by: operatorId,
       notes: data.notes ?? null,
     },
   });
+
+  await writeAuditLog(operatorId, "CREATE_CASE", "Case", kasus.id);
+  return kasus;
 };
 
 export const listCases = async (query: ListCaseInput) => {

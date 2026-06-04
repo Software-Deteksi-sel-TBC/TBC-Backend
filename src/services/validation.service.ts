@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../errors/app.error.js";
 import { assertSameInstitution } from "../utils/access.utils.js";
+import { writeAuditLog } from "../utils/audit.utils.js";
 import { type SubmitValidationInput } from "../validations/validation.validation.js";
 
 export const submitValidation = async (
@@ -20,7 +21,7 @@ export const submitValidation = async (
   const { validation_comment, ...coreData } = data;
 
   // Upsert: re-submit aman, validator_id di-update ke patolog terakhir
-  return prisma.validation.upsert({
+  const validation = await prisma.validation.upsert({
     where: { image_id: imageId },
     create: {
       image_id: imageId,
@@ -35,4 +36,9 @@ export const submitValidation = async (
       submitted_at: new Date(),
     },
   });
+
+  await writeAuditLog(validatorId, "SUBMIT_VALIDATION", "Validation", validation.id, {
+    image_id: imageId,
+  });
+  return validation;
 };

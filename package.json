@@ -42,16 +42,17 @@
   "dependencies": {
     "@prisma/client": "^6.19.2",
     "@supabase/supabase-js": "^2.105.4",
+    "@types/morgan": "^1.9.10",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
     "jsonwebtoken": "^9.0.3",
-
-    "ws": "^8.20.0",
-
+    "morgan": "^1.11.0",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1",
-
+    "ws": "^8.20.0",
     "zod": "^4.3.6"
   },
   "prisma": {

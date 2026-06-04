@@ -35,4 +35,25 @@ export class SupabaseStorage implements StorageService {
       throw new AppError("Gagal menghapus file dari storage", 500);
     }
   }
+
+  async uploadFile(filePath: string, body: string | Buffer, contentType: string): Promise<void> {
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .upload(filePath, body, { contentType, upsert: true });
+
+    if (error) {
+      throw new AppError("Gagal mengupload file ke storage", 500);
+    }
+  }
+
+  async downloadFile(filePath: string): Promise<Buffer> {
+    const { data, error } = await supabase.storage.from(BUCKET).download(filePath);
+
+    if (error || !data) {
+      throw new AppError("Gagal mengunduh file dari storage", 500);
+    }
+
+    const arrayBuffer = await data.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
 }

@@ -35,7 +35,7 @@ export const getPatientById = async (req: Request, res: Response) => {
 export const updatePatient = async (req: Request, res: Response) => {
   try {
     const data = req.body as UpdatePatientInput;
-    const patient = await patientService.updatePatient(req.params.id as string, data);
+    const patient = await patientService.updatePatient(req.params.id as string, data, req.user!.id);
     res.status(200).json({ status: "success", message: "Data pasien berhasil diperbarui", data: patient });
   } catch (error: unknown) {
     sendErrorResponse(res, error);
