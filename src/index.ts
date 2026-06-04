@@ -1,5 +1,6 @@
 import express, { type Express, type Request, type Response } from 'express';
 import dotenv from 'dotenv';
+import swaggerUi from 'swagger-ui-express';
 import authRoutes from './routes/auth.routes.js';
 import patientRoutes from './routes/patient.routes.js';
 import caseRoutes from './routes/case.routes.js';
@@ -9,6 +10,7 @@ import commentRoutes from './routes/comment.routes.js';
 import validationRoutes from './routes/validation.routes.js';
 import consensusRoutes from './routes/consensus.routes.js';
 import cors from 'cors';
+import { swaggerSpec } from './config/swagger.js';
 dotenv.config();
 
 const app: Express = express();
@@ -31,8 +33,9 @@ app.use('/api/review', reviewRoutes);
 app.use('/api/images', commentRoutes);
 app.use('/api/images', validationRoutes);
 app.use('/api/cases', consensusRoutes);
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-app.get('/', (req: Request, res: Response) => {
+app.get('/', (_req: Request, res: Response) => {
   res.send('Express + TypeScript Server is running!');
 });
 
