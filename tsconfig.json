@@ -7,7 +7,6 @@
     "moduleResolution": "nodenext",
     "target": "es2022",
 
-    "types": ["node"],
 
     "sourceMap": true,
     "declaration": true,
