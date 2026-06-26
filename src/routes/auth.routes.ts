@@ -24,6 +24,15 @@ const router = express.Router();
  *     summary: Login dan dapatkan JWT token
  *     tags: [Auth]
  *     security: []
+ *     description: |
+ *       Akun yang tersedia dari seed (semua password: `password123`):
+ *       - `admin@rumahsakit.com` — ADMIN_AI (is_first_login: false)
+ *       - `operator@rumahsakit.com` — OPERATOR_LAB (is_first_login: true)
+ *       - `dr.budi@rumahsakit.com` — DOKTER_PATOLOGI (is_first_login: true)
+ *       - `dr.siti@rumahsakit.com` — DOKTER_PATOLOGI (is_first_login: true)
+ *
+ *       Akun dengan `is_first_login: true` tetap mengembalikan token, tetapi wajib
+ *       ganti password lewat `/api/auth/update-credentials` sebelum dipakai normal.
  *     requestBody:
  *       required: true
  *       content:
@@ -35,7 +44,7 @@ const router = express.Router();
  *               email:
  *                 type: string
  *                 format: email
- *                 example: operator@tbclab.com
+ *                 example: operator@rumahsakit.com
  *               password:
  *                 type: string
  *                 example: password123
@@ -82,13 +91,17 @@ router.post('/login', validate(loginSchema), authController.login);
  *               email:
  *                 type: string
  *                 format: email
+ *                 example: operator@rumahsakit.com
  *               currentPassword:
  *                 type: string
+ *                 example: password123
  *               newPassword:
  *                 type: string
  *                 description: Minimal 8 karakter, harus kombinasi huruf & angka
+ *                 example: passwordBaru123
  *               confirmPassword:
  *                 type: string
+ *                 example: passwordBaru123
  *     responses:
  *       200:
  *         description: Password berhasil diperbarui
@@ -124,6 +137,7 @@ router.post('/update-credentials', validate(updateCredentialSchema), authControl
  *               email:
  *                 type: string
  *                 format: email
+ *                 example: dr.budi@rumahsakit.com
  *     responses:
  *       200:
  *         description: Token berhasil digenerate

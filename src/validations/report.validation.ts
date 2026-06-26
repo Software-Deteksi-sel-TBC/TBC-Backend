@@ -6,7 +6,4 @@ export const generateReportSchema = z.object({
   diagnosis_summary: z.string().max(2000, "Ringkasan diagnosis terlalu panjang (maks. 2000 karakter)").optional(),
 });
 
-export const finalizeReportSchema = z.object({});
-
 export type GenerateReportInput = z.infer<typeof generateReportSchema>;
-export type FinalizeReportInput = z.infer<typeof finalizeReportSchema>;

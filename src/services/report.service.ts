@@ -38,20 +38,14 @@ export const generateReport = async (
     throw new AppError("Kasus belum di-resolve atau belum ada consensus", 400);
   }
 
-  // Periksa laporan lama untuk kasus ini
-  const existingReport = await prisma.report.findFirst({ where: { case_id } });
-  if (existingReport?.is_signed) {
-    throw new AppError("Laporan sudah ditandatangani dan tidak dapat diperbarui", 400);
-  }
-
-  // Gunakan ID lama jika ada (agar file_path tetap konsisten), atau buat baru
-  const reportId = existingReport?.id ?? crypto.randomUUID();
+  const reportId = crypto.randomUUID();
+  const generatedAt = new Date();
   const filePath = buildReportFilePath(case_id, reportId);
 
-  // Buat snapshot JSON dari seluruh data laporan
   const snapshot = {
     report_id: reportId,
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAt.toISOString(),
+    generated_by: patologId,
     patient: {
       name: kasus.patient.name,
       no_induk: kasus.patient.no_induk,
@@ -111,32 +105,27 @@ export const generateReport = async (
   const snapshotBytes = Buffer.from(JSON.stringify(snapshot, null, 2), "utf-8");
   await storage.uploadFile(filePath, snapshotBytes, "application/json");
 
-  let report;
-  if (existingReport) {
-    report = await prisma.report.update({
-      where: { id: reportId },
-      data: {
-        generated_by: patologId,
-        severity: kasus.consensus.severity,
-        pathologist_notes: pathologist_notes ?? null,
-        diagnosis_summary: diagnosis_summary ?? null,
-        file_path: filePath,
-        generated_at: new Date(),
-      },
-    });
-  } else {
-    report = await prisma.report.create({
-      data: {
-        id: reportId,
-        case_id,
-        generated_by: patologId,
-        severity: kasus.consensus.severity,
-        pathologist_notes: pathologist_notes ?? null,
-        diagnosis_summary: diagnosis_summary ?? null,
-        file_path: filePath,
-      },
-    });
-  }
+  // Tanda tangan digital dihitung langsung saat generate: ikat isi snapshot +
+  // identitas penandatangan + waktu + ID laporan agar tamper-evident sejak awal.
+  const contentHash = crypto.createHash("sha256").update(snapshotBytes).digest("hex");
+  const signatureInput = [contentHash, reportId, patologId, generatedAt.toISOString()].join("|");
+  const digitalSignature = crypto.createHash("sha256").update(signatureInput).digest("hex");
+
+  const report = await prisma.report.create({
+    data: {
+      id: reportId,
+      case_id,
+      generated_by: patologId,
+      severity: kasus.consensus.severity,
+      pathologist_notes: pathologist_notes ?? null,
+      diagnosis_summary: diagnosis_summary ?? null,
+      file_path: filePath,
+      generated_at: generatedAt,
+      is_signed: true,
+      digital_signature: digitalSignature,
+      signed_at: generatedAt,
+    },
+  });
 
   await writeAuditLog(patologId, "GENERATE_REPORT", "Report", report.id, { case_id });
   return report;
@@ -161,38 +150,3 @@ export const getReport = async (reportId: string, requesterId: string) => {
   return { ...report, download_url };
 };
 
-export const finalizeReport = async (reportId: string, patologId: string) => {
-  const report = await prisma.report.findUnique({
-    where: { id: reportId },
-    include: { case: true },
-  });
-
-  if (!report) throw new AppError("Laporan tidak ditemukan", 404);
-  await assertSameInstitution(patologId, report.case.created_by);
-
-  if (report.is_signed) {
-    throw new AppError("Laporan sudah ditandatangani sebelumnya", 400);
-  }
-
-  const signedAt = new Date();
-
-  // Hash konten laporan untuk tamper-evidence
-  const snapshotBytes = await storage.downloadFile(report.file_path);
-  const contentHash = crypto.createHash("sha256").update(snapshotBytes).digest("hex");
-
-  // Ikat hash konten + identitas penandatangan + waktu + ID laporan
-  const signatureInput = [contentHash, report.id, patologId, signedAt.toISOString()].join("|");
-  const digitalSignature = crypto.createHash("sha256").update(signatureInput).digest("hex");
-
-  const signed = await prisma.report.update({
-    where: { id: reportId },
-    data: {
-      is_signed: true,
-      signed_at: signedAt,
-      digital_signature: digitalSignature,
-    },
-  });
-
-  await writeAuditLog(patologId, "SIGN_REPORT", "Report", reportId);
-  return signed;
-};

@@ -3,7 +3,7 @@ import { Role } from "@prisma/client";
 import * as reportController from "../controller/report.controller.js";
 import { authenticate, authorize } from "../middlewares/authenticate.middleware.js";
 import { validate } from "../middlewares/validate.middleware.js";
-import { generateReportSchema, finalizeReportSchema } from "../validations/report.validation.js";
+import { generateReportSchema } from "../validations/report.validation.js";
 
 const router = express.Router();
 
@@ -22,9 +22,12 @@ const router = express.Router();
  *     tags: [Reports]
  *     description: |
  *       Menghasilkan snapshot JSON seluruh data kasus (pasien, consensus, AI result,
- *       validasi per citra) dan menguploadnya ke storage. Kasus harus berstatus RESOLVED
- *       dan sudah memiliki consensus. Jika laporan untuk kasus ini sudah ada dan belum
- *       ditandatangani, laporan lama akan ditimpa.
+ *       validasi per citra) dan menguploadnya ke storage. Tanda tangan digital dihitung
+ *       otomatis saat generate — mengikat identitas patolog, isi snapshot, dan waktu
+ *       pembuatan. Setiap pemanggilan selalu membuat laporan baru; laporan lama tetap
+ *       tersimpan sebagai jejak historis.
+ *
+ *       Syarat: kasus harus berstatus RESOLVED dan sudah memiliki consensus.
  *     requestBody:
  *       required: true
  *       content:
@@ -46,7 +49,7 @@ const router = express.Router();
  *                 maxLength: 2000
  *     responses:
  *       201:
- *         description: Laporan berhasil dibuat
+ *         description: Laporan berhasil dibuat dan langsung ditandatangani
  *         content:
  *           application/json:
  *             schema:
@@ -62,10 +65,12 @@ const router = express.Router();
  *                     severity:
  *                       $ref: '#/components/schemas/SeverityLevel'
  *                     file_path: { type: string }
- *                     is_signed: { type: boolean }
+ *                     is_signed: { type: boolean, example: true }
+ *                     digital_signature: { type: string }
  *                     generated_at: { type: string, format: date-time }
+ *                     signed_at: { type: string, format: date-time }
  *       400:
- *         description: Kasus belum RESOLVED atau sudah ada laporan yang ditandatangani
+ *         description: Kasus belum RESOLVED atau belum ada consensus
  *         content:
  *           application/json:
  *             schema:
@@ -131,60 +136,6 @@ router.get(
   authenticate,
   authorize(Role.DOKTER_PATOLOGI),
   reportController.getReport
-);
-
-/**
- * @swagger
- * /api/reports/{id}/finalize:
- *   patch:
- *     summary: Tandatangani laporan secara digital (irreversible)
- *     tags: [Reports]
- *     description: |
- *       Menghitung hash SHA-256 dari seluruh konten snapshot JSON, lalu mengikat hash
- *       tersebut dengan identity penandatangan dan waktu tanda tangan. Setelah ditandatangani,
- *       laporan tidak dapat diperbarui atau ditandatangani ulang.
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID laporan
- *         schema: { type: string, format: uuid }
- *     responses:
- *       200:
- *         description: Laporan berhasil ditandatangani
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status: { type: string, example: success }
- *                 message: { type: string }
- *                 data:
- *                   type: object
- *                   properties:
- *                     id: { type: string, format: uuid }
- *                     is_signed: { type: boolean, example: true }
- *                     digital_signature: { type: string }
- *                     signed_at: { type: string, format: date-time }
- *       400:
- *         description: Laporan sudah ditandatangani sebelumnya
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       404:
- *         description: Laporan tidak ditemukan
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-router.patch(
-  "/:id/finalize",
-  authenticate,
-  authorize(Role.DOKTER_PATOLOGI),
-  validate(finalizeReportSchema),
-  reportController.finalizeReport
 );
 
 export default router;

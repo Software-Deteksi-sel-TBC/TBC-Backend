@@ -30,15 +30,3 @@ export const getReport = async (req: Request, res: Response) => {
   }
 };
 
-export const finalizeReport = async (req: Request, res: Response) => {
-  try {
-    const report = await reportService.finalizeReport(req.params.id as string, req.user!.id);
-    res.status(200).json({
-      status: "success",
-      message: "Laporan berhasil ditandatangani",
-      data: report,
-    });
-  } catch (error: unknown) {
-    sendErrorResponse(res, error);
-  }
-};
